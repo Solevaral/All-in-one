@@ -41,4 +41,7 @@ public sealed class ModuleUserState
 
     /// <summary>Последняя известная версия в релизах (для значка «есть обновление» без сети).</summary>
     public string? LatestKnown { get; set; }
+
+    /// <summary>Версия, о которой уже было уведомление «Доступно обновление» (повторно не сообщается).</summary>
+    public string? NotifiedUpdate { get; set; }
 }

@@ -21,6 +21,30 @@ internal sealed class EmbeddedWindowHost(ExternalModule module) : HwndHost
 
     public bool IsAttached => _child != IntPtr.Zero;
 
+    /// <summary>Окно встроено или отпущено (в том числе закрыто вместе с программой).</summary>
+    public event Action? AttachedChanged;
+
+    private readonly System.Windows.Threading.DispatcherTimer _watch = new() { Interval = TimeSpan.FromSeconds(1) };
+
+    /// <summary>
+    /// Окно программы закрыто (программа завершилась) или скрыто ею самой (свёрнута в трей) —
+    /// окно отпускается, чтобы на его месте не оставался пустой контейнер.
+    /// </summary>
+    public void CheckAlive()
+    {
+        if (_child == IntPtr.Zero) return;
+        if (!IsWindow(_child))
+        {
+            _child = IntPtr.Zero;
+            _watch.Stop();
+            AttachedChanged?.Invoke();
+        }
+        else if (!IsWindowVisible(_child))
+        {
+            Detach();
+        }
+    }
+
     protected override HandleRef BuildWindowCore(HandleRef hwndParent)
     {
         _container = CreateWindowEx(0, "static", "", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
@@ -62,17 +86,26 @@ internal sealed class EmbeddedWindowHost(ExternalModule module) : HwndHost
         ShowWindow(hwnd, SW_SHOW);
         FitChild();
         Log.Info($"Окно {module.Id} встроено в All in One");
+        if (!_watchHooked) { _watch.Tick += (_, _) => CheckAlive(); _watchHooked = true; }
+        _watch.Start();
+        AttachedChanged?.Invoke();
     }
+
+    private bool _watchHooked;
 
     private void Detach()
     {
         if (_child == IntPtr.Zero) return;
         var hwnd = _child;
         _child = IntPtr.Zero;
-        if (!IsWindow(hwnd)) return;
-        ShowWindow(hwnd, SW_HIDE);
-        SetParent(hwnd, IntPtr.Zero);
-        SetWindowLong(hwnd, GWL_STYLE, _oldStyle);
+        _watch.Stop();
+        if (IsWindow(hwnd))
+        {
+            ShowWindow(hwnd, SW_HIDE);
+            SetParent(hwnd, IntPtr.Zero);
+            SetWindowLong(hwnd, GWL_STYLE, _oldStyle);
+        }
+        AttachedChanged?.Invoke();
     }
 
     protected override void OnWindowPositionChanged(Rect rcBoundingBox)

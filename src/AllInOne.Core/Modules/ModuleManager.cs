@@ -423,7 +423,9 @@ public sealed class ModuleManager : IHostServices, IAsyncDisposable
             {
                 if (!entry.UserState.AutoUpdate)
                 {
-                    if (!userInitiated) _ui.Notify("Доступно обновление", $"{entry.Name} {entry.AvailableUpdate}");
+                    if (!userInitiated && entry.UserState.NotifiedUpdate != entry.AvailableUpdate)
+                        _ui.Notify("Доступно обновление", $"{entry.Name} {entry.AvailableUpdate}");
+                    entry.UserState.NotifiedUpdate = entry.AvailableUpdate;
                     continue;
                 }
 

@@ -18,6 +18,8 @@ internal sealed class ModulePage : PageBase
     private readonly ContentControl _generic = new();
     private readonly object? _view;
     private EmbeddedWindowHost? _embedded;
+    private Border? _embeddedFrame;
+    private bool _wasRunning;
 
     public ModulePage(ModuleEntry entry)
     {
@@ -26,7 +28,7 @@ internal sealed class ModulePage : PageBase
 
         Body.Children.Add(_header);
         if (_view is UIElement native) Body.Children.Add(native);
-        else if (CanEmbed) Body.Children.Add(BuildEmbedded());
+        else if (CanEmbed) Body.Children.Add(new Grid { Children = { _generic, BuildEmbedded() } });
         else Body.Children.Add(_generic);
 
         Unloaded += (_, _) => _embedded?.Dispose();
@@ -39,14 +41,19 @@ internal sealed class ModulePage : PageBase
     public override void Refresh()
     {
         _header.Content = BuildHeader();
-        if (_view is null && !CanEmbed) _generic.Content = BuildGeneric();
+        if (_view is null) _generic.Content = BuildGeneric();
     }
 
     public override void OnEntryChanged(ModuleEntry entry)
     {
         if (!ReferenceEquals(entry, _entry)) return;
         Refresh();
-        if (_embedded is { IsAttached: false } && entry.Module.Status.State == ModuleState.Running) _ = _embedded.AttachAsync();
+        if (_embedded is null) return;
+        _embedded.CheckAlive();
+        // Встраивание — только при переходе в «Работает»: окно, скрытое самой программой, обратно не вытаскивается.
+        var running = entry.Module.Status.State == ModuleState.Running;
+        if (running && !_wasRunning && !_embedded.IsAttached) _ = _embedded.AttachAsync();
+        _wasRunning = running;
     }
 
     private FrameworkElement BuildHeader()
@@ -165,9 +172,12 @@ internal sealed class ModulePage : PageBase
         var panel = new StackPanel();
 
         var actions = e.Module.Actions;
-        if (actions.Count > 0)
+        var canShowHere = _embedded is not null && e.Module.Status.State == ModuleState.Running;
+        if (actions.Count > 0 || canShowHere)
         {
             var buttons = UiKit.Buttons();
+            if (canShowHere)
+                buttons.Children.Add(UiKit.AccentButton("Показать окно здесь", () => _ = _embedded!.AttachAsync()));
             foreach (var action in actions)
                 buttons.Children.Add(UiKit.Button(action.Title, () => _ = UiKit.RunAsync(action.Execute, m.Name)));
             panel.Children.Add(UiKit.Card(UiKit.Section("Действия"), buttons));
@@ -184,20 +194,31 @@ internal sealed class ModulePage : PageBase
         return panel;
     }
 
-    /// <summary>Экспериментально: окно программы внутри окна All in One.</summary>
+    /// <summary>
+    /// Экспериментально: окно программы внутри окна All in One. Рамка видна только со встроенным окном;
+    /// пока программа не запущена или окно не найдено, на её месте общая страница.
+    /// </summary>
     private FrameworkElement BuildEmbedded()
     {
         var module = (ExternalModule)_entry.Module;
         _embedded = new EmbeddedWindowHost(module);
-        var frame = new Border
+        _embeddedFrame = new Border
         {
             Style = UiKit.Style("CardBorder"),
             Padding = new Thickness(0),
             Height = 640,
             ClipToBounds = true,
             Child = _embedded,
+            Visibility = Visibility.Collapsed,
         };
-        if (module.Status.State == ModuleState.Running) _ = _embedded.AttachAsync();
-        return frame;
+        _embedded.AttachedChanged += () => Dispatcher.BeginInvoke(() =>
+        {
+            var attached = _embedded.IsAttached;
+            _embeddedFrame.Visibility = attached ? Visibility.Visible : Visibility.Collapsed;
+            _generic.Visibility = attached ? Visibility.Collapsed : Visibility.Visible;
+        });
+        _wasRunning = module.Status.State == ModuleState.Running;
+        if (_wasRunning) _ = _embedded.AttachAsync();
+        return _embeddedFrame;
     }
 }
