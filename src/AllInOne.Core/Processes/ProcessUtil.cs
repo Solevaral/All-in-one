@@ -38,29 +38,26 @@ public static class ProcessUtil
         }
     }
 
-    /// <summary>Процессы с таким именем exe; если задан путь — только запущенные именно из него.</summary>
+    /// <summary>
+    /// Процессы с таким именем exe; если задан путь — только запущенные именно из него.
+    /// Уже завершившиеся процессы пропускаются: пока кто-то держит их дескриптор (антивирус, сам каркас),
+    /// Windows ещё показывает их в списке, и каркас принимал такой «зомби» за снова запущенную программу.
+    /// </summary>
     public static List<Process> Find(string processName, string? exactPath = null)
     {
         var name = Path.GetFileNameWithoutExtension(processName);
         var result = new List<Process>();
         foreach (var p in Process.GetProcessesByName(name))
         {
-            if (exactPath is null)
-            {
-                result.Add(p);
-                continue;
-            }
-
-            var path = TryGetPath(p);
-            if (path is not null && string.Equals(Path.GetFullPath(path), Path.GetFullPath(exactPath), StringComparison.OrdinalIgnoreCase))
-                result.Add(p);
-            else
-                p.Dispose();
+            var keep = IsAlive(p.Id) && (exactPath is null || TryGetPath(p) is { } path &&
+                string.Equals(Path.GetFullPath(path), Path.GetFullPath(exactPath), StringComparison.OrdinalIgnoreCase));
+            if (keep) result.Add(p);
+            else p.Dispose();
         }
         return result;
     }
 
-    /// <summary>Процессы, чей exe лежит внутри папки (для проверки «файлы модуля свободны»).</summary>
+    /// <summary>Живые процессы, чей exe лежит внутри папки (для проверки «файлы модуля свободны»).</summary>
     public static List<Process> FindUnder(string directory)
     {
         var root = Path.GetFullPath(directory).TrimEnd('\\') + "\\";
@@ -68,7 +65,7 @@ public static class ProcessUtil
         foreach (var p in Process.GetProcesses())
         {
             var path = TryGetPath(p);
-            if (path is not null && path.StartsWith(root, StringComparison.OrdinalIgnoreCase)) result.Add(p);
+            if (path is not null && path.StartsWith(root, StringComparison.OrdinalIgnoreCase) && IsAlive(p.Id)) result.Add(p);
             else p.Dispose();
         }
         return result;
@@ -125,24 +122,45 @@ public static class ProcessUtil
         }
     }
 
-    /// <summary>Ждёт завершения всех процессов. true — все завершились за отведённое время.</summary>
+    /// <summary>
+    /// Ждёт завершения всех процессов. true — все завершились за отведённое время.
+    /// Проверка по PID через WaitForSingleObject: Process.WaitForExitAsync для процесса, запущенного
+    /// не этим объектом Process, возвращался раньше реального выхода (fDimmer ещё восстанавливал экран).
+    /// </summary>
     public static async Task<bool> WaitForExitAsync(IEnumerable<Process> processes, TimeSpan timeout, CancellationToken ct)
     {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(timeout);
+        var pids = processes.Select(p =>
+        {
+            try { return p.Id; }
+            catch (InvalidOperationException) { return 0; }
+        }).Where(id => id != 0).ToList();
+
+        var deadline = DateTime.UtcNow + timeout;
+        while (true)
+        {
+            pids.RemoveAll(pid => !IsAlive(pid));
+            if (pids.Count == 0) return true;
+            if (DateTime.UtcNow >= deadline) return false;
+            await Task.Delay(100, ct);
+        }
+    }
+
+    /// <summary>Процесс с этим PID ещё работает.</summary>
+    public static bool IsAlive(int pid)
+    {
+        var handle = OpenProcess(Synchronize | ProcessQueryLimitedInformation, false, pid);
+        if (handle == IntPtr.Zero)
+        {
+            // Нет такого процесса — завершён. Нет доступа — существует, но проверить нельзя: считаем живым.
+            return Marshal.GetLastWin32Error() == ErrorAccessDenied;
+        }
         try
         {
-            await Task.WhenAll(processes.Select(p => p.WaitForExitAsync(cts.Token)));
-            return true;
+            return WaitForSingleObject(handle, 0) == WaitTimeout;
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        finally
         {
-            return false;
-        }
-        catch (InvalidOperationException)
-        {
-            // Процесс уже завершён и отсоединён.
-            return true;
+            CloseHandle(handle);
         }
     }
 
@@ -198,6 +216,12 @@ public static class ProcessUtil
     // ---- interop ----
 
     private const int ProcessQueryLimitedInformation = 0x1000;
+    private const int Synchronize = 0x00100000;
+    private const int ErrorAccessDenied = 5;
+    private const uint WaitTimeout = 0x102;
+
+    [DllImport("kernel32.dll")]
+    private static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
     private const int ProcessCommandLineInformation = 60;
 
     [StructLayout(LayoutKind.Sequential)]

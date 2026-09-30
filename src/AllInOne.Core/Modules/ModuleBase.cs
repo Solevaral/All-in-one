@@ -25,6 +25,8 @@ public abstract class ModuleBase(ModuleContext context) : IModule
     protected void SetStatus(ModuleStatus status)
     {
         if (_status == status) return;
+        if (_status.State != status.State)
+            Core.Log.Info($"{Id}: {_status.State} → {status.State}{(status.Summary is { } s ? " (" + s + ")" : "")}");
         _status = status;
         StatusChanged?.Invoke(this, status);
     }

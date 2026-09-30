@@ -33,7 +33,7 @@ public sealed class ModuleUserState
     /// <summary>Ставить обновления автоматически (работающий модуль — при следующем запуске каркаса).</summary>
     public bool AutoUpdate { get; set; }
 
-    /// <summary>Перезапускать, если процесс модуля неожиданно завершился.</summary>
+    /// <summary>Перезапускать, если процесс модуля неожиданно завершился (экспериментально).</summary>
     public bool RestartOnCrash { get; set; }
 
     /// <summary>Отложенное автообновление: версия, которую нужно поставить при следующем запуске каркаса.</summary>

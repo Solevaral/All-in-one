@@ -1,21 +1,21 @@
 using System.Diagnostics;
-using System.IO.Compression;
 using AllInOne.Core.GitHub;
 
 namespace AllInOne.Core.Install;
 
 /// <summary>
-/// Самообновление каркаса. Работающий exe нельзя перезаписать, но можно переименовать:
-/// AllInOne.exe → AllInOne.old.exe, на его место кладётся новый, он запускается с --post-update
-/// и удаляет .old. Модули при этом не останавливаются — новый каркас подключится к ним по IPC.
+/// Самообновление All in One через установщик. Скачивается сетап того же варианта (net9 или standalone),
+/// запускается в тихом режиме с /UPDATE, а All in One завершается, не останавливая модули.
+/// Сетап заменяет AllInOne.exe и запускает его с --post-update; новый экземпляр подключается
+/// к работающим модулям по IPC. Папки modules и data сетап не трогает.
 /// </summary>
 public sealed class HostUpdater(GitHubReleasesClient github)
 {
     public const string Repo = "Solevaral/All-in-one";
 
-    public string AssetPattern => RuntimeInfo.Flavor == BuildFlavor.Standalone
-        ? "AllInOne-*-win-x64-standalone.zip"
-        : "AllInOne-*-win-x64-net9.zip";
+    public static string AssetPattern => RuntimeInfo.Flavor == BuildFlavor.Standalone
+        ? "AllInOne-*-setup-standalone.exe"
+        : "AllInOne-*-setup-net9.exe";
 
     public async Task<ReleaseChoice?> CheckAsync(CancellationToken ct)
     {
@@ -25,50 +25,39 @@ public sealed class HostUpdater(GitHubReleasesClient github)
         return asset is null ? null : new ReleaseChoice(release, asset);
     }
 
-    /// <summary>Скачивает и подменяет exe. После успешного вызова каркас должен запустить новый exe и выйти.</summary>
-    public async Task<string> DownloadAndSwapAsync(ReleaseChoice choice, IProgress<double>? progress, CancellationToken ct)
+    /// <summary>Скачивает сетап. Вернувшийся путь передаётся в <see cref="LaunchSetup"/>.</summary>
+    public async Task<string> DownloadAsync(ReleaseChoice choice, IProgress<double>? progress, CancellationToken ct)
     {
-        var staging = Path.Combine(AppPaths.Staging, "_host", choice.Version);
-        ModuleInstaller.TryDeleteDirectory(staging);
-        var zip = Path.Combine(staging, choice.Asset.Name);
-        await github.DownloadAsync(choice.Asset, zip, progress, ct);
-
-        var extracted = Path.Combine(staging, "files");
-        ZipFile.ExtractToDirectory(zip, extracted);
-        var newExe = Directory.EnumerateFiles(extracted, "AllInOne.exe", SearchOption.AllDirectories).FirstOrDefault()
-                     ?? throw new InvalidDataException("В архиве обновления нет AllInOne.exe.");
-        ModuleInstaller.Unblock(extracted);
-
-        var current = AppPaths.HostExe;
-        var old = Path.ChangeExtension(current, ".old.exe");
-        if (File.Exists(old)) File.Delete(old);
-        File.Move(current, old);
-        try
-        {
-            File.Move(newExe, current);
-        }
-        catch
-        {
-            File.Move(old, current);
-            throw;
-        }
-
-        ModuleInstaller.TryDeleteDirectory(staging);
-        Log.Info($"Каркас обновлён до {choice.Version}, перезапуск");
-        return current;
+        var dir = Path.Combine(AppPaths.Staging, "_host");
+        ModuleInstaller.TryDeleteDirectory(dir);
+        var setup = Path.Combine(dir, choice.Asset.Name);
+        await github.DownloadAsync(choice.Asset, setup, progress, ct);
+        return setup;
     }
 
-    public static void LaunchUpdated(string exe) =>
-        Process.Start(new ProcessStartInfo(exe, "--post-update") { UseShellExecute = true, WorkingDirectory = AppPaths.Root });
+    /// <summary>
+    /// Запускает тихую установку поверх текущей. После вызова All in One должен сразу завершиться
+    /// (без остановки модулей): сетап ждёт закрытия AllInOne.exe и запускает новую версию.
+    /// </summary>
+    public static void LaunchSetup(string setup)
+    {
+        Log.Info($"Запуск обновления: {setup}");
+        Process.Start(new ProcessStartInfo(setup,
+            $"/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /UPDATE /DIR=\"{AppPaths.Root.TrimEnd('\\')}\"")
+        {
+            UseShellExecute = true,
+            WorkingDirectory = Path.GetDirectoryName(setup)!,
+        });
+    }
 
-    /// <summary>Вызывается новым exe: убирает старый (он мог ещё не завершиться — пробуем несколько раз).</summary>
+    /// <summary>Вызывается новым экземпляром после обновления: убирает скачанный сетап.</summary>
     public static async Task CleanupAfterUpdateAsync()
     {
-        var old = Path.ChangeExtension(AppPaths.HostExe, ".old.exe");
-        for (var i = 0; i < 20 && File.Exists(old); i++)
+        var dir = Path.Combine(AppPaths.Staging, "_host");
+        for (var i = 0; i < 20 && Directory.Exists(dir); i++)
         {
-            try { File.Delete(old); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { await Task.Delay(500); }
+            try { Directory.Delete(dir, recursive: true); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { await Task.Delay(1000); }
         }
     }
 }

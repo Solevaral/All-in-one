@@ -95,7 +95,7 @@ internal sealed class ZapretView : UserControl
         var current = _module.CurrentStrategy;
         var panel = new StackPanel();
         panel.Children.Add(UiKit.Section("Стратегия"));
-        panel.Children.Add(UiKit.Hint("Разные стратегии по-разному обходят блокировки у разных провайдеров. Если Discord или YouTube не работают — попробуйте другую или запустите тесты внизу страницы."));
+        panel.Children.Add(UiKit.Hint("Подбор стратегии под провайдера — тестами внизу страницы."));
 
         panel.Children.Add(UiKit.Row("Стратегия", UiKit.Combo(strategies.Select(s => (s, s)), current ?? "", s =>
         {
@@ -120,28 +120,28 @@ internal sealed class ZapretView : UserControl
         }
         panel.Children.Add(UiKit.Row("Режим запуска", new Border { Style = UiKit.Style("SegmentHost"), HorizontalAlignment = HorizontalAlignment.Left, Child = modes }));
         panel.Children.Add(UiKit.Hint(_module.Settings.Mode == RunMode.Service
-            ? "Служба «zapret» работает без каркаса и стартует вместе с Windows (как Install Service в service.bat). Остановка модуля останавливает службу, удалить её можно кнопкой ниже."
-            : "Каркас сам запускает winws.exe и следит за ним. Чтобы zapret включался при входе в Windows, включите автозапуск каркаса и галочку «Запускать вместе с каркасом»."));
+            ? "Служба Windows «zapret»: работает без All in One, стартует вместе с Windows (как Install Service в service.bat). «Остановить» останавливает службу, не удаляя её."
+            : "winws.exe запускает All in One. Запуск при входе в Windows — автозапуск All in One и галочка «Запускать вместе с All in One»."));
 
         panel.Children.Add(UiKit.Buttons(
             UiKit.Button("Запустить в окне (отладка)", () => _ = UiKit.RunAsync(async () =>
             {
                 if (_module.Status.IsActive) await _module.StopAsync(StopReason.Restart, CancellationToken.None);
                 _module.RunInConsole();
-            }), tooltip: "Запускает winws в видимой консоли — видно, почему он не стартует. Закройте окно, чтобы остановить."),
+            }), tooltip: "winws в видимой консоли с выводом ошибок. Закрытие окна останавливает winws."),
             UiKit.Button("Удалить службу Windows", () => _ = UiKit.RunAsync(async () =>
             {
                 if (ZapretModule.ReadServiceImagePath() is not { } image)
                 {
-                    await Dialog.AlertAsync("Служба zapret", "Служба «zapret» не установлена.");
+                    await Dialog.AlertAsync("Служба zapret", "Служба не установлена.");
                     return;
                 }
                 // Чужая служба (zapret, установленный отдельно) — удаляем только с явного согласия.
                 var own = _module.IsOurService();
                 var go = await Dialog.ConfirmAsync("Удалить службу «zapret»?",
                     own
-                        ? "Служба этого модуля будет остановлена и удалена. Обход перестанет запускаться вместе с Windows."
-                        : $"Эта служба установлена НЕ этим модулем, а из другой папки:\n{image}\n\nОна будет остановлена и удалена. Сам отдельный zapret останется на диске.",
+                        ? "Служба будет остановлена и удалена."
+                        : $"Служба установлена не этим модулем, а из другой папки:\n{image}\n\nСлужба будет остановлена и удалена, файлы той копии zapret останутся.",
                     "Удалить", "Отмена");
                 if (!go) return;
                 await _module.RemoveServiceAsync(CancellationToken.None);
@@ -163,20 +163,20 @@ internal sealed class ZapretView : UserControl
 
         var panel = new StackPanel();
         panel.Children.Add(UiKit.Section("Game Filter"));
-        panel.Children.Add(UiKit.Hint("Обход и для игр: обрабатывает порты выше 1024. Включайте, только если нужен — лишняя нагрузка и риск для античитов."));
+        panel.Children.Add(UiKit.Hint("Обход для игр: обработка портов выше 1024. Нагружает систему, возможны конфликты с античитами."));
         panel.Children.Add(UiKit.Row("Режим", UiKit.Combo(
             [(GameFilterMode.Disabled, "выключен"), (GameFilterMode.All, "TCP и UDP"), (GameFilterMode.Tcp, "только TCP"), (GameFilterMode.Udp, "только UDP")],
             mode, m => mode = m)));
         panel.Children.Add(UiKit.Row("Порты TCP", tcp));
         panel.Children.Add(UiKit.Row("Порты UDP", udp));
-        panel.Children.Add(UiKit.Row("", UiKit.Hint("Например: 1024-65535 или 1024-1934,1936-65535.")));
+        panel.Children.Add(UiKit.Row("", UiKit.Hint("Формат: 1024-65535 или 1024-1934,1936-65535.")));
         panel.Children.Add(UiKit.Buttons(UiKit.AccentButton("Сохранить", () =>
         {
             var t = ZapretFiles.ValidateRange(tcp.Text);
             var u = ZapretFiles.ValidateRange(udp.Text);
             if (t is null || u is null)
             {
-                _ = Dialog.AlertAsync("Game Filter", "Порты указаны неверно: числа от 1 до 65535, диапазоны через дефис, через запятую.");
+                _ = Dialog.AlertAsync("Game Filter", "Неверные порты: числа от 1 до 65535, диапазоны через дефис, разделитель — запятая.");
                 return;
             }
             _module.Files.WriteGameFilter(new GameFilter(mode, t, u));
@@ -194,7 +194,7 @@ internal sealed class ZapretView : UserControl
         var current = files.ReadIpsetMode();
         var panel = new StackPanel();
         panel.Children.Add(UiKit.Section("IPSet"));
-        panel.Children.Add(UiKit.Hint("Обход по списку IP-адресов (для сервисов, которых нет в списках доменов)."));
+        panel.Children.Add(UiKit.Hint("Обход по списку IP-адресов."));
 
         var modes = new StackPanel { Orientation = Orientation.Horizontal };
         foreach (var (mode, title) in new[] { (IpsetMode.None, "Выключен"), (IpsetMode.Loaded, "По списку"), (IpsetMode.Any, "Все адреса") })
@@ -218,7 +218,7 @@ internal sealed class ZapretView : UserControl
         }
         panel.Children.Add(UiKit.Row("Режим", new Border { Style = UiKit.Style("SegmentHost"), HorizontalAlignment = HorizontalAlignment.Left, Child = modes }));
         if (current == IpsetMode.Any)
-            panel.Children.Add(UiKit.Hint("«Все адреса» обрабатывает любой трафик на отслеживаемых портах — может ломать сайты, которые и так работают."));
+            panel.Children.Add(UiKit.Hint("«Все адреса» обрабатывает весь трафик на отслеживаемых портах, включая сайты без блокировок."));
 
         panel.Children.Add(UiKit.Buttons(UiKit.Button("Обновить список IPSet", () => _ = UiKit.RunAsync(async () =>
         {
@@ -227,7 +227,7 @@ internal sealed class ZapretView : UserControl
             await files.UpdateIpsetAsync(http, CancellationToken.None);
             Changed();
             BuildIpset();
-        }, "Список не обновлён"), tooltip: "Скачивает свежий список из репозитория Flowseal и включает режим «По списку».")));
+        }, "Список не обновлён"), tooltip: "Список из репозитория Flowseal, режим «По списку».")));
         _ipsetCard.Content = UiKit.Card(panel);
     }
 
@@ -255,7 +255,7 @@ internal sealed class ZapretView : UserControl
 
         var panel = new StackPanel();
         panel.Children.Add(UiKit.Section("Мои списки"));
-        panel.Children.Add(UiKit.Hint("По одному домену или адресу на строку. Поддомены включаются сами; «^» в начале — только точное совпадение. Эти файлы сохраняются при обновлениях."));
+        panel.Children.Add(UiKit.Hint("Один домен или адрес на строку. Поддомены включаются автоматически, «^» в начале — точное совпадение. Сохраняются при обновлениях."));
         panel.Children.Add(UiKit.Row("Список", UiKit.Combo(lists.Select(l => (l.Item1, l.Item2)), selected, name =>
         {
             selected = name;
@@ -280,7 +280,7 @@ internal sealed class ZapretView : UserControl
         var candidates = files.FakeCandidates();
         var panel = new StackPanel();
         panel.Children.Add(UiKit.Section("Активные фейки"));
-        panel.Children.Add(UiKit.Hint("Какой заготовленный пакет подставлять для голосовых Discord и для игр. Меняйте, только если советуют в обсуждениях zapret."));
+        panel.Children.Add(UiKit.Hint("Заготовленный пакет для голосовых каналов Discord и для игр."));
         foreach (var (active, title) in new[] { ("ACTIVE_DISCORD_UDP.bin", "Discord (UDP)"), ("ACTIVE_GAME_UDP.bin", "Игры (UDP)") })
         {
             var current = files.CurrentFake(active) ?? "";
@@ -302,7 +302,7 @@ internal sealed class ZapretView : UserControl
     {
         var panel = new StackPanel();
         panel.Children.Add(UiKit.Section("Диагностика"));
-        panel.Children.Add(UiKit.Hint("Проверки из service.bat: службы, драйвер, прокси, конфликтующие программы, DoH. Ничего не меняется без вашей команды."));
+        panel.Children.Add(UiKit.Hint("Проверки из service.bat: службы, драйвер, прокси, конфликтующие программы, DoH."));
 
         if (_checks is not null)
         {
@@ -314,10 +314,10 @@ internal sealed class ZapretView : UserControl
             UiKit.Button("Очистить кэш Discord", () =>
             {
                 var n = ZapretDiagnostics.ClearDiscordCache();
-                _ = Dialog.AlertAsync("Кэш Discord", n > 0 ? $"Очищено папок: {n}. Перезапустите Discord." : "Нечего очищать или Discord запущен — закройте его и попробуйте снова.");
+                _ = Dialog.AlertAsync("Кэш Discord", n > 0 ? $"Очищено папок: {n}. Нужен перезапуск Discord." : "Кэш не найден или занят запущенным Discord.");
             }),
             UiKit.Button("Запустить тесты стратегий", () => _ = RunTestsAsync(),
-                tooltip: "utils\\test zapret.ps1 — перебирает стратегии и проверяет доступность сайтов. Откроется окно PowerShell.")));
+                tooltip: "utils\\test zapret.ps1: перебор стратегий с проверкой доступности сайтов, в окне PowerShell.")));
 
         _diagCard.Content = UiKit.Card(panel);
     }
@@ -385,7 +385,7 @@ internal sealed class ZapretView : UserControl
         if (_module.Status.IsActive)
         {
             var go = await Dialog.ConfirmAsync("Запустить тесты?",
-                "Тесты сами запускают стратегии по очереди, поэтому zapret будет остановлен. После тестов запустите его снова с лучшей стратегией.", "Остановить и запустить тесты");
+                "Тесты запускают стратегии по очереди, zapret будет остановлен.", "Остановить и запустить тесты");
             if (!go) return;
         }
         await UiKit.RunAsync(async () =>

@@ -37,7 +37,7 @@ public class GlobTests
 
 public class CatalogTests
 {
-    private static ModuleManifest M(string id, string name, string? minHost = null, int schema = 1) =>
+    private static ModuleManifest M(string id, string name, string? minHost = null, int schema = ModuleManifest.CurrentSchema) =>
         new() { Id = id, Name = name, MinHostVersion = minHost, Schema = schema };
 
     [Fact]
@@ -78,7 +78,8 @@ public class CatalogTests
         Assert.All(catalog.Modules.Where(m => m.IsExternal), m =>
         {
             Assert.NotNull(m.Run);
-            Assert.StartsWith("payload/", m.Run!.Exe);
+            Assert.DoesNotContain("payload", m.Run!.Exe);
+            Assert.Equal(ModuleManifest.CurrentSchema, m.Schema);
             Assert.NotNull(m.Source?.Repo);
         });
     }

@@ -16,21 +16,19 @@ public sealed class ModuleContext(ModuleManifest manifest, IHostUi ui, IHostServ
 {
     public ModuleManifest Manifest { get; set; } = manifest;
 
-    public string ModuleDir => AppPaths.ModuleDir(Manifest.Id);
-
-    public string PayloadDir => Path.Combine(ModuleDir, "payload");
+    public string ProgramDir => AppPaths.ProgramDir(Manifest.ProgramFolder);
 
     public string DataDir
     {
         get
         {
-            var dir = Path.Combine(ModuleDir, "data");
+            var dir = AppPaths.ModuleDataDir(Manifest.Id);
             Directory.CreateDirectory(dir);
             return dir;
         }
     }
 
-    public string ManifestPath => Path.Combine(ModuleDir, "module.json");
+    public string ManifestPath => Path.Combine(AppPaths.ModuleDataDir(Manifest.Id), "module.json");
 
     public bool IsInstalled => File.Exists(ManifestPath);
 
@@ -38,12 +36,15 @@ public sealed class ModuleContext(ModuleManifest manifest, IHostUi ui, IHostServ
 
     public HttpClient Http => http;
 
+    /// <summary>Пользовательские флаги модуля (автозапуск, иконка в трее и т. п.).</summary>
+    public ModuleUserState UserState { get; set; } = new();
+
     public IHostServices Host => host;
 
     public void Notify(string title, string text) => ui.Notify(title, text);
 
     public Task<ForceStopDecision> ConfirmForceStopAsync(string moduleName, string details) => ui.ConfirmForceStopAsync(moduleName, details);
 
-    /// <summary>Абсолютный путь внутри папки модуля.</summary>
-    public string Resolve(string relative) => Path.GetFullPath(Path.Combine(ModuleDir, relative));
+    /// <summary>Абсолютный путь внутри папки программы.</summary>
+    public string Resolve(string relative) => Path.GetFullPath(Path.Combine(ProgramDir, relative));
 }

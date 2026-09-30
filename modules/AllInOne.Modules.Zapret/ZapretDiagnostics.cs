@@ -27,104 +27,156 @@ internal static class ZapretDiagnostics
         var checks = new List<DiagnosticCheck>();
         var files = module.Files;
 
-        // Base Filtering Engine — без неё WinDivert не работает.
-        var bfe = await ServiceUtil.QueryAsync("BFE", ct);
-        checks.Add(bfe == ServiceState.Running
-            ? new("Служба Base Filtering Engine", CheckLevel.Ok, "Работает.")
-            : new("Служба Base Filtering Engine", CheckLevel.Problem, "Не запущена — без неё WinDivert не работает.",
-                "Запустить", () => ServiceUtil.StartAsync("BFE")));
-
-        // Системный прокси.
-        using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Internet Settings"))
+        // Каждая проверка отдельно: ошибка одной (например, hosts заблокирован антивирусом) не срывает остальные.
+        async Task Run(string title, Func<Task> check)
         {
+            try { await check(); }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                checks.Add(new(title, CheckLevel.Info, "Не проверено: " + ex.Message));
+            }
+        }
+
+        await Run("Служба Base Filtering Engine", async () =>
+        {
+            var bfe = await ServiceUtil.QueryAsync("BFE", ct);
+            checks.Add(bfe == ServiceState.Running
+                ? new("Служба Base Filtering Engine", CheckLevel.Ok, "Работает.")
+                : new("Служба Base Filtering Engine", CheckLevel.Problem, "Не запущена, WinDivert без неё не работает.",
+                    "Запустить", () => ServiceUtil.StartAsync("BFE")));
+        });
+
+        await Run("Системный прокси", () =>
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Internet Settings");
             if (key?.GetValue("ProxyEnable") is int enabled && enabled != 0)
             {
                 var server = key.GetValue("ProxyServer") as string ?? "?";
-                checks.Add(new("Системный прокси", CheckLevel.Info,
-                    $"Включён ({server}). Если это VPN-клиент (например, TryToCatchMe) — всё нормально; иначе прокси может мешать zapret."));
+                checks.Add(new("Системный прокси", CheckLevel.Info, $"Включён: {server}. Прокси не VPN-клиента может мешать zapret."));
             }
             else
             {
                 checks.Add(new("Системный прокси", CheckLevel.Ok, "Выключен."));
             }
-        }
+            return Task.CompletedTask;
+        });
 
-        // TCP timestamps.
-        var show = await Cli.RunAsync(Cli.System32("netsh.exe"), ["interface", "tcp", "show", "global"], ct: ct);
-        var tsLine = show.Output.Split('\n').FirstOrDefault(l => l.Contains("timestamps", StringComparison.OrdinalIgnoreCase) || l.Contains("метки времени", StringComparison.OrdinalIgnoreCase));
-        var tsOn = tsLine is not null && (tsLine.Contains("enabled", StringComparison.OrdinalIgnoreCase) || tsLine.Contains("включ", StringComparison.OrdinalIgnoreCase));
-        checks.Add(tsOn
-            ? new("TCP timestamps", CheckLevel.Ok, "Включены.")
-            : new("TCP timestamps", CheckLevel.Warning, "Выключены — стратегии с fooling=ts работать не будут.",
-                "Включить", async () => await ZapretModule.EnableTcpTimestampsAsync(CancellationToken.None)));
-
-        // Файлы.
-        checks.Add(File.Exists(Path.Combine(files.Bin, "WinDivert64.sys"))
-            ? new("Драйвер WinDivert64.sys", CheckLevel.Ok, "Файл на месте.")
-            : new("Драйвер WinDivert64.sys", CheckLevel.Problem, "Файла нет — скорее всего, его удалил антивирус. Добавьте папку модуля в исключения и переустановите модуль."));
-
-        var pathProblems = AppPaths.CheckRootPath();
-        checks.Add(pathProblems.Count == 0
-            ? new("Путь установки", CheckLevel.Ok, files.Root)
-            : new("Путь установки", CheckLevel.Problem, string.Join(" ", pathProblems)));
-
-        // Службы и процессы, которые мешают.
-        var services = await ListServicesAsync(ct);
-        foreach (var name in ConflictServices)
+        await Run("TCP timestamps", async () =>
         {
-            if (!services.Any(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase))) continue;
-            var captured = name;
-            checks.Add(new($"Служба {name}", CheckLevel.Problem, "Конфликтует с zapret (другой обход блокировок).",
-                "Удалить службу", async () =>
-                {
-                    await ServiceUtil.StopAndWaitAsync(captured, TimeSpan.FromSeconds(10));
-                    await ServiceUtil.DeleteAsync(captured);
-                }));
-        }
+            var show = await Cli.RunAsync(Cli.System32("netsh.exe"), ["interface", "tcp", "show", "global"], ct: ct);
+            var tsLine = show.Output.Split('\n').FirstOrDefault(l => l.Contains("timestamps", StringComparison.OrdinalIgnoreCase) || l.Contains("метки времени", StringComparison.OrdinalIgnoreCase));
+            var tsOn = tsLine is not null && (tsLine.Contains("enabled", StringComparison.OrdinalIgnoreCase) || tsLine.Contains("включ", StringComparison.OrdinalIgnoreCase));
+            checks.Add(tsOn
+                ? new("TCP timestamps", CheckLevel.Ok, "Включены.")
+                : new("TCP timestamps", CheckLevel.Warning, "Выключены, стратегии с fooling=ts не работают.",
+                    "Включить", async () => await ZapretModule.EnableTcpTimestampsAsync(CancellationToken.None)));
+        });
 
-        foreach (var (pattern, title) in new[]
-                 {
-                     ("Killer", "Killer Network Service"),
-                     ("Intel.*Connectivity.*Network", "Intel Connectivity Network Service"),
-                     ("TracSrvWrapper|EPWD", "Check Point"),
-                     ("SmartByte", "SmartByte"),
-                 })
+        await Run("Драйвер WinDivert64.sys", () =>
         {
-            if (services.Any(s => Regex.IsMatch(s.Name + " " + s.Display, pattern, RegexOptions.IgnoreCase)))
-                checks.Add(new(title, CheckLevel.Warning, "Известно, что мешает zapret. Если обход не работает — отключите эту службу."));
-        }
+            checks.Add(File.Exists(Path.Combine(files.Bin, "WinDivert64.sys"))
+                ? new("Драйвер WinDivert64.sys", CheckLevel.Ok, "Файл на месте.")
+                : new("Драйвер WinDivert64.sys", CheckLevel.Problem, "Файла нет: удалён антивирусом. Нужны исключение для папки модуля и переустановка модуля."));
+            return Task.CompletedTask;
+        });
 
-        var vpn = services.Where(s => s.Name.Contains("VPN", StringComparison.OrdinalIgnoreCase) || s.Display.Contains("VPN", StringComparison.OrdinalIgnoreCase)).ToList();
-        if (vpn.Count > 0)
-            checks.Add(new("VPN-службы", CheckLevel.Info, "Найдены: " + string.Join(", ", vpn.Select(v => v.Display)) + ". Одновременная работа с VPN может мешать zapret."));
-
-        if (ProcessUtil.Find("AdguardSvc.exe").Count > 0)
-            checks.Add(new("Adguard", CheckLevel.Warning, "Adguard может мешать работе Discord вместе с zapret."));
-
-        // WinDivert работает, а winws нет — драйвер «застрял» (часто после GoodbyeDPI).
-        var ours = module.OurProcesses();
-        var anyWinws = ProcessUtil.Find("winws.exe").Count > 0;
-        foreach (var p in ours) p.Dispose();
-        foreach (var driver in ZapretModule.DriverServices)
+        await Run("Путь установки", () =>
         {
-            var state = await ServiceUtil.QueryAsync(driver, ct);
-            if (state is ServiceState.Running or ServiceState.StopPending && !anyWinws)
+            var pathProblems = AppPaths.CheckRootPath();
+            checks.Add(pathProblems.Count == 0
+                ? new("Путь установки", CheckLevel.Ok, files.Root)
+                : new("Путь установки", CheckLevel.Problem, string.Join(" ", pathProblems)));
+            return Task.CompletedTask;
+        });
+
+        await Run("Конфликтующие службы", async () =>
+        {
+            var services = await ListServicesAsync(ct);
+            foreach (var name in ConflictServices)
             {
-                checks.Add(new($"Драйвер {driver}", CheckLevel.Warning, "Загружен, хотя winws не работает — его держит другая программа или он завис.",
-                    "Выгрузить драйвер", () => ZapretModule.RemoveDriverAsync(CancellationToken.None)));
+                if (!services.Any(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase))) continue;
+                var captured = name;
+                checks.Add(new($"Служба {name}", CheckLevel.Problem, "Другой обход блокировок, конфликтует с zapret.",
+                    "Удалить службу", async () =>
+                    {
+                        await ServiceUtil.StopAndWaitAsync(captured, TimeSpan.FromSeconds(10));
+                        await ServiceUtil.DeleteAsync(captured);
+                    }));
             }
-        }
 
-        // DoH.
-        checks.Add(HasDoh()
-            ? new("Защищённый DNS (DoH)", CheckLevel.Ok, "Включён.")
-            : new("Защищённый DNS (DoH)", CheckLevel.Info, "Не найден. Рекомендуется включить DoH в параметрах сети Windows или в браузере — без него часть сайтов может не открыться."));
+            foreach (var (pattern, title) in new[]
+                     {
+                         ("Killer", "Killer Network Service"),
+                         ("Intel.*Connectivity.*Network", "Intel Connectivity Network Service"),
+                         ("TracSrvWrapper|EPWD", "Check Point"),
+                         ("SmartByte", "SmartByte"),
+                     })
+            {
+                if (services.Any(s => Regex.IsMatch(s.Name + " " + s.Display, pattern, RegexOptions.IgnoreCase)))
+                    checks.Add(new(title, CheckLevel.Warning, "Мешает zapret. При неработающем обходе — отключить службу."));
+            }
 
-        // hosts.
-        var hosts = Path.Combine(Environment.SystemDirectory, "drivers", "etc", "hosts");
-        if (File.Exists(hosts) && File.ReadAllText(hosts).Contains("youtube", StringComparison.OrdinalIgnoreCase))
-            checks.Add(new("Файл hosts", CheckLevel.Warning, "В hosts есть записи про youtube — они могут мешать. Проверьте файл вручную.",
-                "Открыть hosts", () => { UiOpen(hosts); return Task.CompletedTask; }));
+            var vpn = services.Where(s => s.Name.Contains("VPN", StringComparison.OrdinalIgnoreCase) || s.Display.Contains("VPN", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (vpn.Count > 0)
+                checks.Add(new("VPN-службы", CheckLevel.Info, string.Join(", ", vpn.Select(v => v.Display)) + ". VPN может мешать zapret."));
+        });
+
+        await Run("Adguard", () =>
+        {
+            var adguard = ProcessUtil.Find("AdguardSvc.exe");
+            if (adguard.Count > 0)
+                checks.Add(new("Adguard", CheckLevel.Warning, "Adguard мешает работе Discord с zapret."));
+            foreach (var p in adguard) p.Dispose();
+            return Task.CompletedTask;
+        });
+
+        await Run("Драйвер WinDivert", async () =>
+        {
+            // WinDivert загружен, а winws нет — драйвер держит другая программа или он завис (часто после GoodbyeDPI).
+            var winws = ProcessUtil.Find("winws.exe");
+            var anyWinws = winws.Count > 0;
+            foreach (var p in winws) p.Dispose();
+            foreach (var driver in ZapretModule.DriverServices)
+            {
+                var state = await ServiceUtil.QueryAsync(driver, ct);
+                if (state is ServiceState.Running or ServiceState.StopPending && !anyWinws)
+                {
+                    checks.Add(new($"Драйвер {driver}", CheckLevel.Warning, "Загружен без winws: его держит другая программа или он завис.",
+                        "Выгрузить драйвер", () => ZapretModule.RemoveDriverAsync(CancellationToken.None)));
+                }
+            }
+        });
+
+        await Run("Защищённый DNS (DoH)", () =>
+        {
+            checks.Add(HasDoh()
+                ? new("Защищённый DNS (DoH)", CheckLevel.Ok, "Включён.")
+                : new("Защищённый DNS (DoH)", CheckLevel.Info, "Не включён. Без DoH часть сайтов не открывается: параметры сети Windows или браузер."));
+            return Task.CompletedTask;
+        });
+
+        await Run("Файл hosts", () =>
+        {
+            var hosts = Path.Combine(Environment.SystemDirectory, "drivers", "etc", "hosts");
+            if (!File.Exists(hosts)) return Task.CompletedTask;
+            string text;
+            try
+            {
+                // hosts открыт на запись антивирусом или системой — читаем с разделением доступа.
+                using var stream = new FileStream(hosts, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var reader = new StreamReader(stream);
+                text = reader.ReadToEnd();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                checks.Add(new("Файл hosts", CheckLevel.Info, "Нет доступа на чтение (защищён антивирусом)."));
+                return Task.CompletedTask;
+            }
+            if (text.Contains("youtube", StringComparison.OrdinalIgnoreCase))
+                checks.Add(new("Файл hosts", CheckLevel.Warning, "Есть записи про youtube, они мешают обходу.",
+                    "Открыть hosts", () => { UiOpen(hosts); return Task.CompletedTask; }));
+            return Task.CompletedTask;
+        });
 
         return checks;
     }

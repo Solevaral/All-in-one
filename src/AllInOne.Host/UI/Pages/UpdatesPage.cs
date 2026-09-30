@@ -7,10 +7,9 @@ using AllInOne.Ui;
 
 namespace AllInOne.Host.UI.Pages;
 
-/// <summary>Обновления модулей и самого каркаса.</summary>
+/// <summary>Обновления модулей и самого All in One.</summary>
 internal sealed class UpdatesPage : PageBase
 {
-    private static ReleaseChoice? _hostUpdate;
     private static InstallProgress? _hostProgress;
     private bool _checking;
 
@@ -20,33 +19,51 @@ internal sealed class UpdatesPage : PageBase
     {
         Body.Children.Clear();
         Body.Children.Add(UiKit.PageTitle("Обновления"));
-        var last = Manager.Settings.LastUpdateCheck is { } t ? "Последняя проверка: " + t.ToString("dd.MM HH:mm") : "Ещё не проверялось";
-        Body.Children.Add(UiKit.Hint(last + ". Перед обновлением модуль бережно останавливается, а после — запускается снова; если новая версия не заработает, вернётся прежняя."));
+        Body.Children.Add(UiKit.Hint(Manager.Settings.LastUpdateCheck is { } t
+            ? "Последняя проверка: " + t.ToString("dd.MM HH:mm")
+            : "Проверки не было"));
 
         var checking = _checking || Manager.IsCheckingUpdates;
         var pending = Manager.Installed.Where(e => e.AvailableUpdate is not null).ToList();
         Body.Children.Add(UiKit.Buttons(
-            UiKit.Button(checking ? "Проверка…" : "Проверить сейчас", () => _ = CheckAsync()).With(b => b.IsEnabled = !checking),
+            UiKit.Button(checking ? "Проверка…" : "Проверить", () => _ = CheckAsync()).With(b => b.IsEnabled = !checking),
             UiKit.AccentButton($"Обновить всё ({pending.Count})", () => _ = UpdateAllAsync(pending)).With(b => b.IsEnabled = pending.Count > 0 && !checking)));
 
-        foreach (var error in Manager.LastCheckErrors)
+        // Недоступность источника — отдельной плашкой: версии ниже могут быть устаревшими.
+        if (Manager.GitHub.LastError is { } sourceError)
+        {
+            Body.Children.Add(new Border
+            {
+                Style = UiKit.Style("CardBorder"),
+                Margin = new Thickness(0, 14, 0, 0),
+                Child = new StackPanel
+                {
+                    Children =
+                    {
+                        new TextBlock { Text = "Источник обновлений недоступен", Foreground = UiKit.Brush("Warn"), FontWeight = FontWeights.SemiBold },
+                        UiKit.Hint(sourceError.Message),
+                    },
+                },
+            });
+        }
+        foreach (var error in Manager.LastCheckErrors.Where(e => Manager.GitHub.LastError is null || !e.Contains(Manager.GitHub.LastError.Message)))
             Body.Children.Add(new TextBlock { Text = error, Foreground = UiKit.Brush("Warn"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) });
 
-        // ---- каркас ----
-        Body.Children.Add(UiKit.Section("Каркас").With(s => s.Margin = new Thickness(2, 22, 0, 10)));
+        // ---- All in One ----
+        Body.Children.Add(UiKit.Section("All in One").With(s => s.Margin = new Thickness(2, 22, 0, 10)));
         var host = new StackPanel();
-        host.Children.Add(UiKit.CardTitle($"All-in-one {RuntimeInfo.HostVersionText}"));
-        host.Children.Add(UiKit.Hint(RuntimeInfo.Flavor == BuildFlavor.Standalone ? "Сборка standalone (с .NET внутри)" : "Сборка net9 (использует установленный .NET 9)"));
+        host.Children.Add(UiKit.CardTitle($"All in One {RuntimeInfo.HostVersionText}"));
+        host.Children.Add(UiKit.Hint(RuntimeInfo.Flavor == BuildFlavor.Standalone ? "Сборка standalone" : "Сборка net9"));
         if (_hostProgress is { } hp)
         {
             host.Children.Add(ProgressView(hp));
         }
-        else if (_hostUpdate is { } hu)
+        else if (Manager.HostUpdate is { } hu)
         {
             host.Children.Add(UiKit.Text($"Доступна версия {hu.Version}."));
             host.Children.Add(UiKit.Buttons(
-                UiKit.AccentButton($"Обновить каркас до {hu.Version}", () => _ = UpdateHostAsync(hu)),
-                UiKit.Link("Что нового", () => UiKit.OpenUrl(hu.Release.HtmlUrl ?? "https://github.com/" + HostUpdater.Repo + "/releases"))));
+                UiKit.AccentButton($"Обновить до {hu.Version}", () => _ = UpdateHostAsync(hu)),
+                UiKit.Link("Изменения", () => UiKit.OpenUrl(hu.Release.HtmlUrl ?? "https://github.com/" + HostUpdater.Repo + "/releases"))));
         }
         Body.Children.Add(new Border { Style = UiKit.Style("CardBorder"), Child = host });
 
@@ -67,8 +84,8 @@ internal sealed class UpdatesPage : PageBase
         info.Children.Add(UiKit.CardTitle(entry.Name));
         var current = entry.Context.Manifest.Version ?? "?";
         info.Children.Add(UiKit.Hint(entry.AvailableUpdate is { } u
-            ? $"Установлена {current}, доступна {u}" + (entry.UserState.PendingUpdate is not null ? " — будет установлена при следующем запуске каркаса" : "")
-            : $"Установлена {current} — последняя"));
+            ? $"Установлена {current}, доступна {u}" + (entry.UserState.PendingUpdate is not null ? ", установится при следующем запуске All in One" : "")
+            : $"Установлена {current}, последняя"));
         info.Children.Add(UiKit.Toggle("Обновлять автоматически", entry.UserState.AutoUpdate, on =>
         {
             entry.UserState.AutoUpdate = on;
@@ -98,11 +115,6 @@ internal sealed class UpdatesPage : PageBase
         try
         {
             await Manager.CheckUpdatesAsync(userInitiated: true);
-            if (Manager.Settings.CheckHostUpdates)
-            {
-                try { _hostUpdate = await new HostUpdater(Manager.GitHub).CheckAsync(CancellationToken.None); }
-                catch (Exception ex) when (ex is not OperationCanceledException) { Log.Warn("Проверка обновления каркаса: " + ex.Message); }
-            }
         }
         finally
         {
@@ -117,7 +129,7 @@ internal sealed class UpdatesPage : PageBase
         if (running.Count > 0)
         {
             var go = await Dialog.ConfirmAsync("Обновить всё?",
-                $"Работающие модули ({string.Join(", ", running)}) будут по очереди бережно остановлены, обновлены и запущены снова.", "Обновить");
+                $"Запущенные модули ({string.Join(", ", running)}) будут остановлены, обновлены и запущены снова.", "Обновить");
             if (!go) return;
         }
         foreach (var entry in entries)
@@ -126,10 +138,14 @@ internal sealed class UpdatesPage : PageBase
         }
     }
 
+    /// <summary>
+    /// Скачивает сетап, запускает тихую установку и закрывает All in One, не останавливая модули.
+    /// Сетап запускает новую версию, она подключается к работающим модулям.
+    /// </summary>
     private async Task UpdateHostAsync(ReleaseChoice choice)
     {
-        var go = await Dialog.ConfirmAsync($"Обновить All-in-one до {choice.Version}?",
-            "Каркас перезапустится. Модули продолжат работать — новый каркас подключится к ним сам.", "Обновить");
+        var go = await Dialog.ConfirmAsync($"Обновить All in One до {choice.Version}?",
+            "All in One закроется и запустится после установки. Модули продолжат работать.", "Обновить");
         if (!go) return;
 
         _hostProgress = new InstallProgress("Скачивание…", 0);
@@ -138,9 +154,9 @@ internal sealed class UpdatesPage : PageBase
         {
             try
             {
-                var exe = await new HostUpdater(Manager.GitHub).DownloadAndSwapAsync(choice,
+                var setup = await new HostUpdater(Manager.GitHub).DownloadAsync(choice,
                     new Progress<double>(f => { _hostProgress = new InstallProgress("Скачивание…", f); Refresh(); }), CancellationToken.None);
-                HostUpdater.LaunchUpdated(exe);
+                HostUpdater.LaunchSetup(setup);
                 await App.Current.ShutdownHostAsync();
             }
             finally
@@ -148,6 +164,6 @@ internal sealed class UpdatesPage : PageBase
                 _hostProgress = null;
                 Refresh();
             }
-        }, "Каркас не обновился");
+        }, "All in One не обновился");
     }
 }

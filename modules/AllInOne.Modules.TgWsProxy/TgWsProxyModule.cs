@@ -29,8 +29,8 @@ public sealed class TgWsProxyModule(ModuleContext context) : ModuleBase(context)
     private const string ExeName = "TgWsProxy.exe";
     private DateTime? _startedAt;
 
-    internal string ExePath => Path.Combine(Context.PayloadDir, ExeName);
-    internal string DataDir => Path.Combine(Context.PayloadDir, "TgWsProxy_data");
+    internal string ExePath => Path.Combine(Context.ProgramDir, ExeName);
+    internal string DataDir => Path.Combine(Context.ProgramDir, "TgWsProxy_data");
     internal string ConfigPath => Path.Combine(DataDir, "config.json");
     internal string LogPath => Path.Combine(DataDir, "proxy.log");
 
@@ -112,16 +112,16 @@ public sealed class TgWsProxyModule(ModuleContext context) : ModuleBase(context)
         if (Status.State == ModuleState.Running) return;
 
         if (ProcessUtil.MutexExists(@"Local\TgWsProxy_SingleInstance") && FindProcesses().Count == 0)
-            throw new InvalidOperationException("TG WS Proxy уже запущен отдельно (не из каркаса). Закройте его через трей и попробуйте снова.");
+            throw new InvalidOperationException("TG WS Proxy запущен не из All in One. Закройте его через трей.");
 
         EnsureHostedConfig();
         var (_, port) = Endpoint();
         if (ProcessUtil.IsPortListening(port))
-            throw new InvalidOperationException($"Порт {port} уже занят другой программой. Смените порт в настройках модуля.");
+            throw new InvalidOperationException($"Порт {port} занят другой программой.");
 
         SetStatus(ModuleState.Starting, "Запуск…");
         _startedAt = DateTime.UtcNow;
-        using (Process.Start(new ProcessStartInfo(ExePath) { UseShellExecute = false, WorkingDirectory = Context.PayloadDir })) { }
+        using (Process.Start(new ProcessStartInfo(ExePath) { UseShellExecute = false, WorkingDirectory = Context.ProgramDir })) { }
 
         for (var i = 0; i < 40; i++)
         {
@@ -206,7 +206,7 @@ public sealed class TgWsProxyModule(ModuleContext context) : ModuleBase(context)
         }
         else
         {
-            SetStatus(ModuleState.Error, "Порт не слушается", $"Процесс работает, но порт {port} закрыт. Посмотрите лог ниже.");
+            SetStatus(ModuleState.Error, "Порт не слушается", $"Процесс работает, порт {port} закрыт. Подробности в логе.");
         }
     }
 

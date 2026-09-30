@@ -3,7 +3,7 @@
   <PropertyGroup>
     <UseWPF>true</UseWPF>
     <RootNamespace>AllInOne.Modules.TgWsProxy</RootNamespace>
-    <Description>Адаптер All-in-one для Flowseal/tg-ws-proxy.</Description>
+    <Description>Адаптер All in One для Flowseal/tg-ws-proxy.</Description>
   </PropertyGroup>
 
   <ItemGroup>

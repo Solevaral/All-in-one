@@ -26,7 +26,7 @@ internal sealed class CountdownWindow : Window
         var panel = new StackPanel();
         panel.Children.Add(new TextBlock { Text = action + " компьютера", Style = UiKit.Style("CardTitle") });
         panel.Children.Add(_time);
-        panel.Children.Add(UiKit.Hint("Перед этим каркас бережно остановит модули."));
+        panel.Children.Add(UiKit.Hint("Перед этим All in One остановит модули."));
 
         var buttons = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
         buttons.Children.Add(UiKit.AccentButton("Отменить", () => CancelRequested?.Invoke()));

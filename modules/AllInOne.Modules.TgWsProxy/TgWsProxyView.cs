@@ -53,11 +53,10 @@ internal sealed class TgWsProxyView : UserControl
         panel.Children.Add(UiKit.Section("Подключение Telegram"));
         if (link is null)
         {
-            panel.Children.Add(UiKit.Hint("Ссылка появится после первого запуска прокси — он сам создаст секрет."));
+            panel.Children.Add(UiKit.Hint("Ссылки нет: секрет создаётся при первом запуске прокси."));
         }
         else
         {
-            panel.Children.Add(UiKit.Hint("Нажмите «Открыть в Telegram» — Telegram предложит включить прокси. Прокси должен быть запущен."));
             panel.Children.Add(UiKit.Buttons(
                 UiKit.AccentButton("Открыть в Telegram", () => TgWsProxyModule.OpenLink(link)).With(b => b.IsEnabled = running),
                 UiKit.Button("Скопировать ссылку", () => Clipboard.SetText(link))));
@@ -85,13 +84,13 @@ internal sealed class TgWsProxyView : UserControl
         var panel = new StackPanel();
         panel.Children.Add(UiKit.Section("Настройки прокси"));
         panel.Children.Add(UiKit.Row("Адрес", host));
-        panel.Children.Add(UiKit.Row("", UiKit.Hint("127.0.0.1 — только этот компьютер; 0.0.0.0 — и другие устройства в сети.")));
+        panel.Children.Add(UiKit.Row("", UiKit.Hint("127.0.0.1 — этот компьютер, 0.0.0.0 — все устройства в сети.")));
         panel.Children.Add(UiKit.Row("Порт", port));
         panel.Children.Add(UiKit.Row("DC → IP", dcIp));
-        panel.Children.Add(UiKit.Row("", UiKit.Hint("По одному на строку в виде «номер DC:IP».")));
+        panel.Children.Add(UiKit.Row("", UiKit.Hint("Формат строки: номер DC:IP.")));
         panel.Children.Add(UiKit.Toggle("Запасной путь через Cloudflare (cfproxy)", cfproxy, on => cfproxy = on));
         panel.Children.Add(UiKit.Toggle("Подробный лог", verbose, on => verbose = on));
-        panel.Children.Add(UiKit.Hint("Остальные настройки — в окне самой программы (значок TG WS Proxy в трее)."));
+        panel.Children.Add(UiKit.Hint("Остальные настройки — в окне TG WS Proxy (значок в трее)."));
         panel.Children.Add(UiKit.Buttons(UiKit.AccentButton("Сохранить и перезапустить", () => _ = SaveAsync())));
         return UiKit.Card(panel);
 

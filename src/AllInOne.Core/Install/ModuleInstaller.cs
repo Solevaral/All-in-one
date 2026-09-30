@@ -16,9 +16,9 @@ public sealed record ReleaseChoice(GitHubRelease Release, GitHubAsset Asset)
 
 /// <summary>
 /// Установка, обновление и удаление модулей. Порядок обновления:
-/// скачать в staging → проверить → бережно остановить → освободить файлы (хуки) →
-/// бэкап payload → замена с переносом preserve → запуск и проверка → откат при сбое.
-/// До шага «бэкап» установленная версия не тронута, поэтому любая ошибка раньше безопасна.
+/// скачать в data\staging → проверить → бережно остановить → подготовить замену (хуки модуля) →
+/// перенести папку программы в data\backup → положить новую, вернуть preserve → запустить и проверить →
+/// откат при сбое. До переноса в backup установленная версия не тронута, поэтому ошибка раньше безопасна.
 /// </summary>
 public sealed class ModuleInstaller(GitHubReleasesClient github)
 {
@@ -32,10 +32,11 @@ public sealed class ModuleInstaller(GitHubReleasesClient github)
         if (source.Type != "github") throw new NotSupportedException($"Источник «{source.Type}» не поддерживается.");
 
         var release = await github.GetLatestAsync(source.Repo, source.Prerelease, ct)
-                      ?? throw new GitHubException($"В {source.Repo} нет релизов.");
+                      ?? throw new GitHubException(GitHubErrorKind.NoReleases, $"В {source.Repo} нет релизов.");
 
         var asset = PickAsset(release, source)
-                    ?? throw new GitHubException($"В релизе {release.TagName} ({source.Repo}) нет подходящего файла для этой системы.");
+                    ?? throw new GitHubException(GitHubErrorKind.AssetMissing,
+                        $"В релизе {release.TagName} репозитория {source.Repo} нет файла для этой системы ({source.Asset}).");
         return new ReleaseChoice(release, asset);
     }
 
@@ -53,11 +54,10 @@ public sealed class ModuleInstaller(GitHubReleasesClient github)
     {
         var manifest = catalogManifest.Clone();
 
-        // Встроенный модуль без payload: «установка» — это просто запись манифеста.
+        // Встроенный модуль без программы: «установка» — это запись манифеста.
         if (manifest.Source is null || manifest.Source.Type == "none")
         {
             manifest.Version = RuntimeInfo.HostVersion.ToString(3);
-            Directory.CreateDirectory(ctx.ModuleDir);
             JsonFile.Write(ctx.ManifestPath, manifest);
             ctx.Manifest = manifest;
             module.OnInstallationChanged();
@@ -77,12 +77,12 @@ public sealed class ModuleInstaller(GitHubReleasesClient github)
                 new Progress<double>(f => progress?.Report(new InstallProgress($"Скачивание {choice.Asset.Name}…", f))), ct);
 
             progress?.Report(new InstallProgress("Распаковка…"));
-            var stagedPayload = Path.Combine(stagingRoot, "payload");
-            Unpack(download, stagedPayload, manifest.Source);
+            var staged = Path.Combine(stagingRoot, "program");
+            Unpack(download, staged, manifest.Source);
 
             manifest.Version = choice.Version;
             manifest.InstalledAsset = choice.Asset.Name;
-            await ApplyAsync(module, ctx, manifest, stagedPayload, progress, ct);
+            await ApplyAsync(module, ctx, manifest, staged, progress, ct);
         }
         finally
         {
@@ -91,7 +91,7 @@ public sealed class ModuleInstaller(GitHubReleasesClient github)
     }
 
     /// <summary>
-    /// Ручная установка из zip: в архиве module.json и папка payload (или файлы payload в корне рядом с module.json).
+    /// Ручная установка из zip: в архиве module.json и папка program (или файлы программы в корне рядом с module.json).
     /// </summary>
     public static ModuleManifest ReadManifestFromZip(string zipPath)
     {
@@ -103,8 +103,8 @@ public sealed class ModuleInstaller(GitHubReleasesClient github)
                        ?? throw new InvalidDataException("module.json пустой.");
         if (string.IsNullOrWhiteSpace(manifest.Id) || manifest.Id.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
             throw new InvalidDataException("В module.json не задан корректный id.");
-        if (manifest.Schema > ModuleManifest.CurrentSchema)
-            throw new InvalidDataException("Модуль сделан для более новой версии каркаса.");
+        if (manifest.Schema != ModuleManifest.CurrentSchema)
+            throw new InvalidDataException($"module.json схемы {manifest.Schema}, каркас понимает {ModuleManifest.CurrentSchema}.");
         return manifest;
     }
 
@@ -119,11 +119,11 @@ public sealed class ModuleInstaller(GitHubReleasesClient github)
             progress?.Report(new InstallProgress("Распаковка…"));
             var extracted = Path.Combine(stagingRoot, "zip");
             ZipFile.ExtractToDirectory(zipPath, extracted);
-            var payload = Directory.Exists(Path.Combine(extracted, "payload")) ? Path.Combine(extracted, "payload") : extracted;
+            var program = Directory.Exists(Path.Combine(extracted, "program")) ? Path.Combine(extracted, "program") : extracted;
             File.Delete(Path.Combine(extracted, "module.json"));
             manifest.Version ??= "0.0.0";
             manifest.InstalledAsset = Path.GetFileName(zipPath);
-            await ApplyAsync(module, ctx, manifest, payload, progress, ct);
+            await ApplyAsync(module, ctx, manifest, program, progress, ct);
         }
         finally
         {
@@ -131,16 +131,16 @@ public sealed class ModuleInstaller(GitHubReleasesClient github)
         }
     }
 
-    private async Task ApplyAsync(ModuleBase module, ModuleContext ctx, ModuleManifest newManifest, string stagedPayload,
+    private async Task ApplyAsync(ModuleBase module, ModuleContext ctx, ModuleManifest newManifest, string staged,
         IProgress<InstallProgress>? progress, CancellationToken ct)
     {
         var isUpdate = ctx.IsInstalled;
         var oldManifest = isUpdate ? ctx.Manifest.Clone() : null;
         var wasRunning = module.Status.IsActive;
         var hooks = module as IModuleInstallHooks;
-        var payloadDir = ctx.PayloadDir;
+        var programDir = ctx.ProgramDir;
         var backupDir = Path.Combine(AppPaths.Backup, newManifest.Id);
-        var backupPayload = Path.Combine(backupDir, "payload");
+        var backupProgram = Path.Combine(backupDir, "program");
 
         if (isUpdate)
         {
@@ -155,38 +155,35 @@ public sealed class ModuleInstaller(GitHubReleasesClient github)
         {
             if (hooks is not null)
             {
-                progress?.Report(new InstallProgress("Освобождение файлов…"));
+                progress?.Report(new InstallProgress("Подготовка к замене файлов…"));
                 saved = await hooks.BeforeReplaceAsync(isUpdate, ct);
             }
 
-            await EnsureFilesFreeAsync(payloadDir, ct);
+            await EnsureFilesFreeAsync(programDir, ct);
 
-            // Бэкап: переносим текущий payload целиком (на одном томе это быстро и атомарно).
+            // Бэкап: переносим текущую папку программы целиком (на одном томе это быстро и атомарно).
             progress?.Report(new InstallProgress("Замена файлов…"));
             TryDeleteDirectory(backupDir);
             Directory.CreateDirectory(backupDir);
-            if (Directory.Exists(payloadDir)) Directory.Move(payloadDir, backupPayload);
+            if (Directory.Exists(programDir)) Directory.Move(programDir, backupProgram);
             if (File.Exists(ctx.ManifestPath)) File.Copy(ctx.ManifestPath, Path.Combine(backupDir, "module.json"), overwrite: true);
 
-            Directory.CreateDirectory(ctx.ModuleDir);
-            Directory.Move(stagedPayload, payloadDir);
+            // Папка программы могла смениться (другое имя в новом манифесте) — кладём по новому имени.
+            ctx.Manifest = newManifest;
+            programDir = ctx.ProgramDir;
+            Directory.CreateDirectory(AppPaths.Modules);
+            Directory.Move(staged, programDir);
             replaced = true;
 
-            // Переносим то, что должно пережить обновление (пути в preserve — относительно папки модуля).
-            var payloadPatterns = newManifest.Preserve
-                .Select(p => p.Replace('\\', '/'))
-                .Where(p => p.StartsWith("payload/", StringComparison.OrdinalIgnoreCase))
-                .Select(p => p["payload/".Length..])
-                .ToList();
-            foreach (var rel in Glob.Match(backupPayload, payloadPatterns))
+            // Переносим то, что должно пережить обновление (пути в preserve — внутри папки программы).
+            foreach (var rel in Glob.Match(backupProgram, newManifest.Preserve))
             {
-                var target = Path.Combine(payloadDir, rel);
+                var target = Path.Combine(programDir, rel);
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                File.Copy(Path.Combine(backupPayload, rel), target, overwrite: true);
+                File.Copy(Path.Combine(backupProgram, rel), target, overwrite: true);
             }
 
             JsonFile.Write(ctx.ManifestPath, newManifest);
-            ctx.Manifest = newManifest;
 
             if (hooks is not null) await hooks.AfterReplaceAsync(isUpdate, saved, ct);
             module.OnInstallationChanged();
@@ -204,23 +201,24 @@ public sealed class ModuleInstaller(GitHubReleasesClient github)
         catch (Exception ex) when (replaced && oldManifest is not null && ex is not OperationCanceledException { CancellationToken.IsCancellationRequested: true })
         {
             Log.Error($"{newManifest.Id}: ошибка после замены файлов, откат на {oldManifest.Version}", ex);
-            progress?.Report(new InstallProgress("Ошибка — откат на прежнюю версию…"));
-            await RollbackAsync(module, ctx, oldManifest, backupPayload, wasRunning, saved);
+            progress?.Report(new InstallProgress("Ошибка, откат на прежнюю версию…"));
+            await RollbackAsync(module, ctx, oldManifest, backupProgram, wasRunning, saved);
             throw new InvalidOperationException($"Обновление не удалось, возвращена версия {oldManifest.Version}. {ex.Message}", ex);
         }
         catch
         {
-            if (!replaced && isUpdate && Directory.Exists(backupPayload) && !Directory.Exists(payloadDir))
+            if (!replaced && oldManifest is not null)
             {
-                // Упали между бэкапом и заменой — возвращаем как было.
-                Directory.Move(backupPayload, payloadDir);
+                ctx.Manifest = oldManifest;
+                if (Directory.Exists(backupProgram) && !Directory.Exists(ctx.ProgramDir))
+                    Directory.Move(backupProgram, ctx.ProgramDir);   // упали между бэкапом и заменой — возвращаем как было
             }
             module.OnInstallationChanged();
             throw;
         }
     }
 
-    private static async Task RollbackAsync(ModuleBase module, ModuleContext ctx, ModuleManifest oldManifest, string backupPayload,
+    private static async Task RollbackAsync(ModuleBase module, ModuleContext ctx, ModuleManifest oldManifest, string backupProgram,
         bool wasRunning, IDictionary<string, string> saved)
     {
         try
@@ -228,10 +226,10 @@ public sealed class ModuleInstaller(GitHubReleasesClient github)
             try { await module.StopAsync(StopReason.Update, CancellationToken.None); }
             catch (Exception ex) { Log.Warn($"Откат: остановка новой версии — {ex.Message}"); }
 
-            TryDeleteDirectory(ctx.PayloadDir);
-            if (Directory.Exists(backupPayload)) Directory.Move(backupPayload, ctx.PayloadDir);
-            JsonFile.Write(ctx.ManifestPath, oldManifest);
+            TryDeleteDirectory(ctx.ProgramDir);
             ctx.Manifest = oldManifest;
+            if (Directory.Exists(backupProgram)) Directory.Move(backupProgram, ctx.ProgramDir);
+            JsonFile.Write(ctx.ManifestPath, oldManifest);
             if (module is IModuleInstallHooks hooks) await hooks.AfterReplaceAsync(true, saved, CancellationToken.None);
             module.OnInstallationChanged();
             if (wasRunning) await module.StartAsync(CancellationToken.None);
@@ -247,23 +245,23 @@ public sealed class ModuleInstaller(GitHubReleasesClient github)
         if (!ctx.IsInstalled) return;
         await module.StopAsync(StopReason.Uninstall, ct);
         if (module is IModuleInstallHooks hooks) await hooks.BeforeReplaceAsync(false, ct);
-        await EnsureFilesFreeAsync(ctx.PayloadDir, ct);
+        await EnsureFilesFreeAsync(ctx.ProgramDir, ct);
 
-        TryDeleteDirectory(ctx.PayloadDir);
-        File.Delete(ctx.ManifestPath);
-        if (removeData) TryDeleteDirectory(ctx.ModuleDir);
+        TryDeleteDirectory(ctx.ProgramDir);
+        if (removeData) TryDeleteDirectory(AppPaths.ModuleDataDir(ctx.Manifest.Id));
+        else File.Delete(ctx.ManifestPath);
         TryDeleteDirectory(Path.Combine(AppPaths.Backup, ctx.Manifest.Id));
         module.OnInstallationChanged();
         Log.Info($"{ctx.Manifest.Id}: удалён");
     }
 
-    private static async Task EnsureFilesFreeAsync(string payloadDir, CancellationToken ct)
+    private static async Task EnsureFilesFreeAsync(string programDir, CancellationToken ct)
     {
-        if (!Directory.Exists(payloadDir)) return;
+        if (!Directory.Exists(programDir)) return;
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
         while (true)
         {
-            var busy = ProcessUtil.FindUnder(payloadDir);
+            var busy = ProcessUtil.FindUnder(programDir);
             var names = busy.Select(p => p.ProcessName + ".exe").Distinct().ToList();
             foreach (var p in busy) p.Dispose();
             if (names.Count == 0) return;
@@ -286,7 +284,7 @@ public sealed class ModuleInstaller(GitHubReleasesClient github)
         return module.Status.State == ModuleState.Running;
     }
 
-    /// <summary>Раскладывает скачанный ассет в папку payload.</summary>
+    /// <summary>Раскладывает скачанный ассет в папку программы.</summary>
     internal static void Unpack(string downloaded, string targetDir, ModuleSource source)
     {
         Directory.CreateDirectory(targetDir);

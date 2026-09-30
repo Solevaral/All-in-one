@@ -7,7 +7,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>AllInOne</AssemblyName>
     <RootNamespace>AllInOne.Host</RootNamespace>
-    <Description>All-in-one — каркас для программ-модулей.</Description>
+    <Description>All in One — каркас для программ-модулей.</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

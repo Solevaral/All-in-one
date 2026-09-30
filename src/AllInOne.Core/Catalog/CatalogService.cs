@@ -16,7 +16,7 @@ public sealed class CatalogService(HttpClient http, string builtinJson, Version 
     public IReadOnlyList<CatalogItem> Items { get; private set; } = [];
 
     /// <summary>Откуда взят удалённый каталог при последнем обновлении.</summary>
-    public string RemoteState { get; private set; } = "не загружался";
+    public string RemoteState { get; private set; } = "не загружен";
 
     public event EventHandler? Changed;
 
@@ -26,7 +26,7 @@ public sealed class CatalogService(HttpClient http, string builtinJson, Version 
         var builtin = Parse(builtinJson) ?? new CatalogFile();
         var cached = JsonFile.Read<CatalogFile>(AppPaths.CatalogCacheFile);
         Items = Merge(builtin, cached, hostVersion);
-        RemoteState = cached is null ? "только встроенный" : "из кэша";
+        RemoteState = cached is null ? "не загружен, используется встроенный" : "из кэша";
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
@@ -55,7 +55,7 @@ public sealed class CatalogService(HttpClient http, string builtinJson, Version 
         if (remote is null)
         {
             remote = JsonFile.Read<CatalogFile>(AppPaths.CatalogCacheFile);
-            RemoteState = remote is null ? "недоступен, только встроенный" : "недоступен, из кэша";
+            RemoteState = remote is null ? "недоступен, используется встроенный" : "недоступен, используется кэш";
         }
 
         Items = Merge(builtin, remote, hostVersion);
@@ -85,7 +85,7 @@ public sealed class CatalogService(HttpClient http, string builtinJson, Version 
     }
 
     /// <summary>
-    /// Слияние по id: удалённая запись перекрывает встроенную. Записи с непонятной схемой
+    /// Слияние по id: удалённая запись перекрывает встроенную. Записи другой схемы
     /// манифеста пропускаются, записи с minHostVersion новее каркаса помечаются.
     /// </summary>
     internal static IReadOnlyList<CatalogItem> Merge(CatalogFile builtin, CatalogFile? remote, Version hostVersion)
@@ -97,7 +97,7 @@ public sealed class CatalogService(HttpClient http, string builtinJson, Version 
         {
             foreach (var m in modules)
             {
-                if (string.IsNullOrWhiteSpace(m.Id) || m.Schema > ModuleManifest.CurrentSchema) continue;
+                if (string.IsNullOrWhiteSpace(m.Id) || m.Schema != ModuleManifest.CurrentSchema) continue;
                 var requiresHost = m.MinHostVersion is { } min && SemVer.Compare(min, hostVersion.ToString(3)) > 0;
                 if (!result.ContainsKey(m.Id)) order.Add(m.Id);
                 result[m.Id] = new CatalogItem(m, origin, requiresHost);

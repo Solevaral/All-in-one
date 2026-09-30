@@ -32,7 +32,7 @@ public static class HostAutostart
             <?xml version="1.0" encoding="UTF-16"?>
             <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
               <RegistrationInfo>
-                <Description>Запуск All-in-one при входе в систему</Description>
+                <Description>Запуск All in One при входе в систему</Description>
               </RegistrationInfo>
               <Triggers>
                 <LogonTrigger>

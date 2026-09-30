@@ -1,59 +1,68 @@
-<p align="center"><img src="docs/logo.png" width="128" alt="All-in-one"></p>
+<p align="center"><img src="docs/logo.png" width="128" alt="All in One"></p>
 
-# All-in-one
+# All in One
 
-Одна программа для Windows вместо нескольких. Качается только каркас, а нужные программы ставятся в него из каталога как модули. Каркас сам их обновляет, запускает вместе с собой и бережно останавливает.
+Каркас для программ под Windows: программы ставятся в него из каталога как модули, обновляются и запускаются вместе с ним.
 
 ## Модули
 
-| Модуль | Что делает | Откуда |
+| Модуль | Что делает | Источник |
 |---|---|---|
-| **zapret** | Обход блокировок Discord и YouTube: выбор стратегии, служба Windows, Game Filter, IPSet, свои списки, диагностика, тесты | [Flowseal/zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube) |
-| **TG WS Proxy** | Локальный MTProto-прокси для Telegram, подключение одной кнопкой | [Flowseal/tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy) |
+| **zapret** | Обход блокировок Discord и YouTube: стратегии, служба Windows, Game Filter, IPSet, свои списки, диагностика, тесты | [Flowseal/zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube) |
+| **TG WS Proxy** | Локальный MTProto-прокси для Telegram | [Flowseal/tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy) |
 | **TryToCatchMe** | VPN-клиент на sing-box | [Solevaral/TryToCatchMe-client](https://github.com/Solevaral/TryToCatchMe-client) |
 | **fDimmer** | Затемнение экрана вместе с системным интерфейсом | [Solevaral/fDimmer](https://github.com/Solevaral/fDimmer) |
 | **magniF** | Лупа по удержанию клавиши | [Solevaral/magniF](https://github.com/Solevaral/magniF) |
-| **Таймер выключения** | Выключение, перезагрузка или сон в заданное время или через интервал | встроен |
+| **Таймер выключения** | Выключение, перезагрузка или сон по времени или через интервал | встроен |
 
-Каталог пополняется без выпуска новой версии каркаса: удалённый список модулей лежит в [All-in-one-modules](https://github.com/Solevaral/All-in-one-modules). Свой модуль можно поставить из zip — см. [docs/MODULES.md](docs/MODULES.md).
+Каталог модулей на GitHub: [All-in-one-modules](https://github.com/Solevaral/All-in-one-modules). Формат модулей и протокол — [docs/MODULES.md](docs/MODULES.md).
 
-## Скачать
+## Установка
 
-Страница [Releases](https://github.com/Solevaral/All-in-one/releases), два варианта:
+[Releases](https://github.com/Solevaral/All-in-one/releases), установщик на выбор:
 
-- `AllInOne-<версия>-win-x64-net9.zip` — лёгкий, нужен [.NET 9 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/9.0);
-- `AllInOne-<версия>-win-x64-standalone.zip` — всё внутри, ничего ставить не нужно.
+- `AllInOne-<версия>-setup-net9.exe` — нужен [.NET 9 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/9.0);
+- `AllInOne-<версия>-setup-standalone.exe` — .NET внутри.
 
-Распакуйте в отдельную папку с латинскими буквами в пути, например `C:\AllInOne`. Не кладите её в OneDrive: zapret не работает из путей с кириллицей, а синхронизация мешает обновлениям.
+Папка по умолчанию — `C:\Program Files\All in One`. Пути с не-латинскими символами и OneDrive установщик не принимает: zapret из них не работает.
 
-Каркас запускается от администратора, потому что zapret ставит драйвер WinDivert и службы. В «Настройках» можно включить автозапуск при входе в Windows. Он делается через Планировщик задач с наивысшими правами, поэтому окна UAC при входе не будет.
+```
+C:\Program Files\All in One\
+  AllInOne.exe
+  modules\<Имя>\   программы модулей, запускаются и без All in One
+  data\            настройки, каталог, логи, данные модулей
+```
 
-## Как это работает
+All in One работает от администратора: zapret ставит драйвер WinDivert и службы. Автозапуск при входе в Windows (в «Настройках») — задача Планировщика с наивысшими правами, без окна UAC.
 
-- **Бережная остановка.** Перед обновлением, выходом или выключением по таймеру каждый модуль останавливается штатно: VPN возвращает системный прокси, zapret отпускает драйвер, fDimmer — яркость, magniF — курсор. Если модуль не ответил, каркас спрашивает, что делать, и не убивает процесс молча.
-- **Обновления.** Версии берутся прямо из GitHub Releases каждого модуля. Обновить можно кнопкой или включить автообновление у модуля. Работающий модуль тогда обновится при следующем запуске каркаса, чтобы не прерывать работу. Если новая версия не запустилась, возвращается прежняя.
-- **Независимость от каркаса.** Модули — отдельные процессы. Каркас можно закрыть, оставив их работать, а при следующем запуске он подключится к ним снова. Так же проходит и самообновление каркаса.
+Удаление — «Программы и компоненты»: модули останавливаются, установщик спрашивает, удалять ли папки `modules` и `data`.
+
+## Работа модулей
+
+- **Остановка.** Перед обновлением, выходом и выключением по таймеру модуль останавливается командой программы: VPN возвращает системный прокси, zapret отпускает драйвер, fDimmer — яркость, magniF — курсор. Не ответил — вопрос: ждать, завершить или отменить.
+- **Обновления.** Версии — из GitHub Releases модулей. Обновление кнопкой или автоматически по галочке модуля; запущенный модуль обновляется при следующем запуске All in One. Новая версия не запустилась — возвращается прежняя.
+- **Независимость.** Модули — отдельные процессы. При выходе из All in One их можно оставить работать; при следующем запуске, в том числе после обновления All in One, связь с ними восстанавливается.
 
 ## Сборка
 
-Нужен .NET 9 SDK.
+.NET 9 SDK:
 
 ```bash
 dotnet build AllInOne.sln -c Release
 ```
 
 ```bash
-dotnet test
+dotnet test tests/AllInOne.Tests/AllInOne.Tests.csproj
 ```
 
-Публикация обоих вариантов. Варианты делят папку `obj`, поэтому между ними очищайте `src/AllInOne.Host/obj` и `bin` — иначе standalone соберётся без рантайма:
+Установщик (Inno Setup 6.3+). Варианты делят папку `obj`, между ними — очистка `src/AllInOne.Host/obj` и `bin`:
 
 ```bash
 dotnet publish src/AllInOne.Host/AllInOne.Host.csproj -c Release -p:AllInOneFlavor=net9 -o publish/net9
 ```
 
 ```bash
-dotnet publish src/AllInOne.Host/AllInOne.Host.csproj -c Release -p:AllInOneFlavor=standalone -o publish/standalone
+iscc /DAppVersion=0.2.0 /DFlavor=net9 installer/AllInOne.iss
 ```
 
 ## Устройство
@@ -65,9 +74,10 @@ src/AllInOne.Ui       общие элементы интерфейса и диа
 src/AllInOne.Host     окно, трей, страницы
 modules/              встроенные модули: zapret, TG WS Proxy, таймер выключения
 catalog/              встроенный каталог
-docs/MODULES.md       как сделать модуль; docs/reference/HostLink.cs — готовая реализация протокола
+installer/            установщик (Inno Setup)
+docs/                 MODULES.md, reference/HostLink.cs
 ```
 
 ## Лицензия
 
-MIT. zapret и WinDivert распространяются на условиях своих лицензий и скачиваются из их собственных релизов.
+MIT. zapret и WinDivert — на условиях своих лицензий, скачиваются из собственных релизов.

@@ -3,7 +3,7 @@
   <PropertyGroup>
     <UseWPF>true</UseWPF>
     <RootNamespace>AllInOne.Modules.ShutdownTimer</RootNamespace>
-    <Description>Встроенный модуль All-in-one: выключение ПК по времени или через интервал.</Description>
+    <Description>Встроенный модуль All in One: выключение ПК по времени или через интервал.</Description>
   </PropertyGroup>
 
   <ItemGroup>

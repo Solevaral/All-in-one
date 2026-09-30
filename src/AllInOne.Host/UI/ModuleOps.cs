@@ -26,8 +26,8 @@ internal static class ModuleOps
         if (entry.Module.Status.IsActive)
         {
             var go = await Dialog.ConfirmAsync($"Обновить «{entry.Name}»?",
-                $"Модуль сейчас работает. На время обновления он будет бережно остановлен и затем запущен снова" +
-                (entry.Context.Manifest.Category == "Сеть" ? " — соединение ненадолго прервётся." : "."),
+                "Модуль будет остановлен, обновлён и запущен снова" +
+                (entry.Context.Manifest.Category == "Сеть" ? ", соединение прервётся." : "."),
                 "Обновить", "Отмена");
             if (!go) return;
         }
@@ -37,8 +37,8 @@ internal static class ModuleOps
     public static async Task UninstallAsync(ModuleEntry entry)
     {
         var choice = await Dialog.ShowAsync($"Удалить «{entry.Name}»?",
-            "Модуль будет остановлен и удалён. Его настройки в папке data можно сохранить на случай повторной установки.",
-            "Удалить, сохранив настройки", "Удалить полностью", "Отмена");
+            "Модуль будет остановлен, папка программы удалена.",
+            "Удалить, сохранить настройки", "Удалить вместе с настройками", "Отмена");
         if (choice is < 0 or 2) return;
         await UiKit.RunAsync(() => Manager.UninstallAsync(entry, removeData: choice == 1), $"«{entry.Name}» не удалился");
     }

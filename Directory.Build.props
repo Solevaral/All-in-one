@@ -1,4 +1,4 @@
-<Project>
+﻿<Project>
   <PropertyGroup>
     <TargetFramework>net9.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
@@ -8,9 +8,9 @@
     <PlatformTarget>x64</PlatformTarget>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <SatelliteResourceLanguages>ru</SatelliteResourceLanguages>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Authors>Solevaral</Authors>
-    <Product>All-in-one</Product>
+    <Product>All in One</Product>
     <!-- P/Invoke объявлен через DllImport намеренно, как в fDimmer и magniF. -->
     <NoWarn>$(NoWarn);SYSLIB1054</NoWarn>
   </PropertyGroup>

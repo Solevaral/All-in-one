@@ -44,7 +44,7 @@ public interface IModuleInstallHooks
 {
     /// <summary>
     /// Вызывается после бережной остановки и перед заменой файлов: освободить всё,
-    /// что держит файлы payload (например, удалить службу и драйвер WinDivert).
+    /// что держит файлы программы (например, удалить службу и драйвер WinDivert).
     /// Возвращает данные, которые нужно вернуть после замены (например, «служба была установлена»).
     /// </summary>
     Task<IDictionary<string, string>> BeforeReplaceAsync(bool isUpdate, CancellationToken ct);
@@ -52,7 +52,7 @@ public interface IModuleInstallHooks
     /// <summary>Вызывается после распаковки новой версии: донастройка, восстановление состояния.</summary>
     Task AfterReplaceAsync(bool isUpdate, IDictionary<string, string> saved, CancellationToken ct);
 
-    /// <summary>Версия, прочитанная из самих файлов payload (если её можно узнать надёжнее, чем из манифеста).</summary>
+    /// <summary>Версия, прочитанная из самих файлов программы (если её можно узнать надёжнее, чем из манифеста).</summary>
     string? ReadPayloadVersion();
 }
 

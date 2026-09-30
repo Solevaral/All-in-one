@@ -292,8 +292,8 @@ public sealed class ShutdownTimerModule : ModuleBase
         Save();
         UpdateStatus();
         var run = await Dialog.ConfirmAsync("Таймер выключения",
-            $"Таймер должен был выполнить «{TimerState.Title(action)}» в {target:dd.MM HH:mm}, но каркас в это время не работал.\n\nВыполнить сейчас?",
-            "Выполнить", "Не нужно");
+            $"«{TimerState.Title(action)}» было назначено на {target:dd.MM HH:mm}, All in One в это время не работал.\n\nВыполнить сейчас?",
+            "Выполнить", "Отмена");
         if (run)
         {
             _state.Target = DateTime.Now;

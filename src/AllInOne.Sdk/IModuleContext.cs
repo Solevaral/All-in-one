@@ -5,13 +5,10 @@ public interface IModuleContext
 {
     ModuleManifest Manifest { get; }
 
-    /// <summary>modules\&lt;id&gt;</summary>
-    string ModuleDir { get; }
+    /// <summary>modules\&lt;Имя&gt; — файлы программы, заменяются при обновлении целиком.</summary>
+    string ProgramDir { get; }
 
-    /// <summary>modules\&lt;id&gt;\payload — файлы программы, заменяются при обновлении.</summary>
-    string PayloadDir { get; }
-
-    /// <summary>modules\&lt;id&gt;\data — данные модуля, переживают обновления.</summary>
+    /// <summary>data\modules\&lt;id&gt; — манифест и данные модуля, переживают обновления.</summary>
     string DataDir { get; }
 
     IModuleLog Log { get; }
@@ -43,6 +40,9 @@ public enum ForceStopDecision
 public interface IHostServices
 {
     Version HostVersion { get; }
+
+    /// <summary>Включены экспериментальные функции (настройка каркаса).</summary>
+    bool ExperimentalFeatures { get; }
 
     /// <summary>Бережно останавливает все запущенные модули, кроме вызывающего (для таймера выключения).</summary>
     Task StopAllModulesAsync(StopReason reason, string? exceptId, CancellationToken ct);

@@ -1,18 +1,21 @@
 {
-  // Встроенный каталог: вшивается в exe каркаса и работает без сети.
+  // Встроенный каталог: вшивается в AllInOne.exe и работает без сети.
   // Удалённый каталог (Solevaral/All-in-one-modules) перекрывает эти записи по id.
-  // Версий здесь нет — каркас берёт их из GitHub Releases каждого репозитория.
+  // Версий здесь нет — All in One берёт их из GitHub Releases каждого репозитория.
+  // Пути run/preserve — внутри папки программы modules\<folder>.
   "schema": 1,
   "modules": [
     {
+      "schema": 2,
       "id": "zapret",
       "name": "zapret",
+      "folder": "zapret",
       "description": "Обход блокировок Discord и YouTube (zapret-discord-youtube от Flowseal): выбор стратегии, Game Filter, списки, диагностика.",
       "category": "Сеть",
       "author": "Flowseal, bol-van",
       "homepage": "https://github.com/Flowseal/zapret-discord-youtube",
       "kind": "adapter:zapret",
-      "minHostVersion": "0.1.0",
+      "minHostVersion": "0.2.0",
       "source": {
         "type": "github",
         "repo": "Flowseal/zapret-discord-youtube",
@@ -21,19 +24,21 @@
       },
       "stop": { "strategy": "adapter", "timeoutSec": 15, "fallback": "kill" },
       "preserve": [
-        "payload/lists/*-user.txt",
-        "payload/utils/game_filter.enabled"
+        "lists/*-user.txt",
+        "utils/game_filter.enabled"
       ]
     },
     {
+      "schema": 2,
       "id": "tg-ws-proxy",
       "name": "TG WS Proxy",
-      "description": "Локальный MTProto-прокси для Telegram через WebSocket (Flowseal). Подключение одной кнопкой «Открыть в Telegram».",
+      "folder": "TG WS Proxy",
+      "description": "Локальный MTProto-прокси для Telegram через WebSocket (Flowseal). Подключение кнопкой «Открыть в Telegram».",
       "category": "Сеть",
       "author": "Flowseal",
       "homepage": "https://github.com/Flowseal/tg-ws-proxy",
       "kind": "adapter:tgwsproxy",
-      "minHostVersion": "0.1.0",
+      "minHostVersion": "0.2.0",
       "source": {
         "type": "github",
         "repo": "Flowseal/tg-ws-proxy",
@@ -42,42 +47,47 @@
         "layout": "file",
         "saveAs": "TgWsProxy.exe"
       },
-      "run": { "exe": "payload/TgWsProxy.exe", "args": [] },
+      "run": { "exe": "TgWsProxy.exe", "args": [] },
       "detect": { "mutex": "Local\\TgWsProxy_SingleInstance", "process": "TgWsProxy.exe", "port": 1443 },
       "stop": { "strategy": "processTree", "timeoutSec": 10, "fallback": "kill" },
-      "preserve": [ "payload/TgWsProxy_data/**" ],
+      "preserve": [ "TgWsProxy_data/**" ],
       "legacyAutostart": { "runKey": "TgWsProxy" }
     },
     {
+      "schema": 2,
       "id": "trytocatchme",
       "name": "TryToCatchMe",
+      "folder": "TryToCatchMe",
       "description": "VPN-клиент на sing-box: VLESS, VMess, Shadowsocks, Trojan, маршрутизация по сервисам, TUN.",
       "category": "Сеть",
       "author": "Solevaral",
       "homepage": "https://github.com/Solevaral/TryToCatchMe-client",
       "kind": "external",
-      "minHostVersion": "0.1.0",
+      "minHostVersion": "0.2.0",
+      "embeddable": true,
       "source": {
         "type": "github",
         "repo": "Solevaral/TryToCatchMe-client",
-        "asset": "TryToCatchMe_*_x64-portable.zip",
+        "asset": "TryToCatchMe_*_x64-AllInOne.zip",
         "layout": "zip"
       },
-      "run": { "exe": "payload/TryToCatchMe.exe", "args": [ "--hosted", "--pipe", "{pipe}" ] },
+      "run": { "exe": "TryToCatchMe.exe", "args": [ "--hosted", "--pipe", "{pipe}" ] },
       "detect": { "process": "TryToCatchMe.exe" },
       "ipc": { "protocol": 1 },
       "stop": { "strategy": "ipc", "timeoutSec": 20, "fallback": "ask" },
       "legacyAutostart": { "runKey": "TryToCatchMe" }
     },
     {
+      "schema": 2,
       "id": "fdimmer",
       "name": "fDimmer",
+      "folder": "fDimmer",
       "description": "Затемнение экрана вместе с системным интерфейсом: общий уровень или по мониторам, расписание.",
       "category": "Экран",
       "author": "Solevaral",
       "homepage": "https://github.com/Solevaral/fDimmer",
       "kind": "external",
-      "minHostVersion": "0.1.0",
+      "minHostVersion": "0.2.0",
       "source": {
         "type": "github",
         "repo": "Solevaral/fDimmer",
@@ -86,21 +96,23 @@
         "layout": "file",
         "saveAs": "fDimmer.exe"
       },
-      "run": { "exe": "payload/fDimmer.exe", "args": [ "--hosted", "--pipe", "{pipe}" ] },
+      "run": { "exe": "fDimmer.exe", "args": [ "--hosted", "--pipe", "{pipe}" ] },
       "detect": { "mutex": "Local\\fDimmer.SingleInstance", "process": "fDimmer.exe" },
       "ipc": { "protocol": 1 },
       "stop": { "strategy": "ipc", "timeoutSec": 10, "fallback": "ask" },
       "legacyAutostart": { "runKey": "fDimmer" }
     },
     {
+      "schema": 2,
       "id": "magnif",
       "name": "magniF",
+      "folder": "magniF",
       "description": "Лупа по удержанию клавиши: линза следует за курсором, колесо меняет увеличение.",
       "category": "Экран",
       "author": "Solevaral",
       "homepage": "https://github.com/Solevaral/magniF",
       "kind": "external",
-      "minHostVersion": "0.1.0",
+      "minHostVersion": "0.2.0",
       "source": {
         "type": "github",
         "repo": "Solevaral/magniF",
@@ -109,20 +121,21 @@
         "layout": "file",
         "saveAs": "magniF.exe"
       },
-      "run": { "exe": "payload/magniF.exe", "args": [ "--hosted", "--pipe", "{pipe}" ] },
+      "run": { "exe": "magniF.exe", "args": [ "--hosted", "--pipe", "{pipe}" ] },
       "detect": { "mutex": "Local\\magniF.SingleInstance", "process": "magniF.exe" },
       "ipc": { "protocol": 1 },
       "stop": { "strategy": "ipc", "timeoutSec": 10, "fallback": "ask" },
       "legacyAutostart": { "runKey": "magniF" }
     },
     {
+      "schema": 2,
       "id": "shutdown-timer",
       "name": "Таймер выключения",
-      "description": "Выключение, перезагрузка или сон в заданное время или через заданный промежуток. Перед выключением бережно останавливает модули.",
+      "description": "Выключение, перезагрузка или сон в заданное время или через интервал. Перед выключением бережно останавливает модули.",
       "category": "Система",
       "author": "Solevaral",
       "kind": "builtin:shutdown-timer",
-      "minHostVersion": "0.1.0",
+      "minHostVersion": "0.2.0",
       "source": { "type": "none" }
     }
   ]

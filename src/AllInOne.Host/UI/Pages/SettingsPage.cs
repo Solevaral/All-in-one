@@ -27,14 +27,13 @@ internal sealed class SettingsPage : PageBase
         var s = Manager.Settings;
         Body.Children.Clear();
         Body.Children.Add(UiKit.PageTitle("Настройки"));
-        Body.Children.Add(UiKit.Hint("Настройки каркаса. Настройки модулей — на их страницах."));
 
         var start = new StackPanel();
         start.Children.Add(UiKit.Section("Запуск"));
         if (_autostart is { } autostart)
         {
-            start.Children.Add(UiKit.Toggle("Запускать All-in-one при входе в Windows", autostart, on => _ = SetAutostartAsync(on),
-                "Через Планировщик задач с наивысшими правами — без окна UAC. Модули запускаются по своим галочкам «Запускать вместе с каркасом»."));
+            start.Children.Add(UiKit.Toggle("Запускать All in One при входе в Windows", autostart, on => _ = SetAutostartAsync(on),
+                "Задача Планировщика с наивысшими правами, без окна UAC. Модули запускаются по галочке «Запускать вместе с All in One»."));
         }
         else
         {
@@ -42,7 +41,7 @@ internal sealed class SettingsPage : PageBase
         }
         start.Children.Add(UiKit.Toggle("Запускаться свёрнутым в трей", s.StartMinimized, on => { s.StartMinimized = on; s.Save(); }));
         start.Children.Add(UiKit.Toggle("Закрытие окна сворачивает в трей", s.CloseToTray, on => { s.CloseToTray = on; s.Save(); }));
-        start.Children.Add(UiKit.Row("При выходе из каркаса", UiKit.Combo(
+        start.Children.Add(UiKit.Row("При выходе из All in One", UiKit.Combo(
             [(ExitBehavior.Ask, "спрашивать"), (ExitBehavior.StopModules, "останавливать модули"), (ExitBehavior.KeepRunning, "оставлять модули работать")],
             s.OnExit, v => { s.OnExit = v; s.Save(); })));
         Body.Children.Add(new Border { Style = UiKit.Style("CardBorder"), Child = start });
@@ -52,22 +51,32 @@ internal sealed class SettingsPage : PageBase
         updates.Children.Add(UiKit.Row("Проверять обновления", UiKit.Combo(
             [(1, "каждый час"), (3, "каждые 3 часа"), (6, "каждые 6 часов"), (12, "каждые 12 часов"), (24, "раз в сутки"), (0, "только вручную")],
             s.UpdateCheckHours, v => { s.UpdateCheckHours = v; s.Save(); })));
-        updates.Children.Add(UiKit.Toggle("Проверять обновления самого каркаса", s.CheckHostUpdates, on => { s.CheckHostUpdates = on; s.Save(); }));
+        updates.Children.Add(UiKit.Toggle("Проверять обновления All in One", s.CheckHostUpdates, on => { s.CheckHostUpdates = on; s.Save(); }));
         var url = new TextBox { Text = s.CatalogUrl ?? "", ToolTip = "Пусто — " + CatalogService.DefaultRemoteUrl };
         url.LostFocus += (_, _) => { s.CatalogUrl = string.IsNullOrWhiteSpace(url.Text) ? null : url.Text.Trim(); s.Save(); };
-        updates.Children.Add(UiKit.Row("Адрес удалённого каталога", url));
-        updates.Children.Add(UiKit.Hint("Оставьте пустым, чтобы использовать каталог Solevaral/All-in-one-modules."));
+        updates.Children.Add(UiKit.Row("Адрес каталога на GitHub", url));
+        updates.Children.Add(UiKit.Hint("Пусто — Solevaral/All-in-one-modules."));
         Body.Children.Add(new Border { Style = UiKit.Style("CardBorder"), Child = updates });
+
+        var experimental = new StackPanel();
+        experimental.Children.Add(UiKit.Section("Экспериментальные функции"));
+        experimental.Children.Add(UiKit.Toggle("Включить экспериментальные функции", s.ExperimentalFeatures, on =>
+        {
+            s.ExperimentalFeatures = on;
+            s.Save();
+        }, "Перезапуск модуля после неожиданного завершения; окно TryToCatchMe внутри окна All in One."));
+        Body.Children.Add(new Border { Style = UiKit.Style("CardBorder"), Child = experimental });
 
         var about = new StackPanel();
         about.Children.Add(UiKit.Section("О программе"));
-        about.Children.Add(UiKit.Text($"All-in-one {RuntimeInfo.HostVersionText} ({(RuntimeInfo.Flavor == BuildFlavor.Standalone ? "standalone" : "net9")})"));
+        about.Children.Add(UiKit.Text($"All in One {RuntimeInfo.HostVersionText} ({(RuntimeInfo.Flavor == BuildFlavor.Standalone ? "standalone" : "net9")})"));
         about.Children.Add(UiKit.Mono(AppPaths.Root).With(t => t.Margin = new Thickness(0, 4, 0, 0)));
         foreach (var problem in AppPaths.CheckRootPath())
             about.Children.Add(new TextBlock { Text = problem, Foreground = UiKit.Brush("Warn"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
         about.Children.Add(UiKit.Buttons(
-            UiKit.Button("Открыть папку", () => UiKit.OpenFolder(AppPaths.Root)),
-            UiKit.Button("Открыть логи", () => UiKit.OpenFolder(AppPaths.Logs)),
+            UiKit.Button("Папка модулей", () => UiKit.OpenFolder(AppPaths.Modules)),
+            UiKit.Button("Папка данных", () => UiKit.OpenFolder(AppPaths.Data)),
+            UiKit.Button("Логи", () => UiKit.OpenFolder(AppPaths.Logs)),
             UiKit.Button("GitHub", () => UiKit.OpenUrl("https://github.com/Solevaral/All-in-one"))));
         Body.Children.Add(new Border { Style = UiKit.Style("CardBorder"), Child = about });
     }

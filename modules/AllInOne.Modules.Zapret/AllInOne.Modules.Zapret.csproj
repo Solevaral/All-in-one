@@ -3,7 +3,7 @@
   <PropertyGroup>
     <UseWPF>true</UseWPF>
     <RootNamespace>AllInOne.Modules.Zapret</RootNamespace>
-    <Description>Модуль All-in-one: графическая оболочка для Flowseal/zapret-discord-youtube.</Description>
+    <Description>Модуль All in One: графическая оболочка для Flowseal/zapret-discord-youtube.</Description>
   </PropertyGroup>
 
   <ItemGroup>

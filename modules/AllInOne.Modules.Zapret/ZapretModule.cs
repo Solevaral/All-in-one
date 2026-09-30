@@ -49,7 +49,7 @@ public sealed class ZapretModule : ModuleBase, IModuleInstallHooks
         _settings = JsonFile.Read<ZapretSettings>(SettingsPath) ?? new ZapretSettings();
     }
 
-    internal ZapretFiles Files => new(Context.PayloadDir);
+    internal ZapretFiles Files => new(Context.ProgramDir);
 
     internal ZapretSettings Settings => _settings;
 
@@ -84,7 +84,7 @@ public sealed class ZapretModule : ModuleBase, IModuleInstallHooks
         var strategy = CurrentStrategy ?? throw new InvalidOperationException("В папке zapret нет ни одной стратегии (*.bat).");
         var files = Files;
         if (!File.Exists(Path.Combine(files.Bin, "WinDivert64.sys")))
-            throw new InvalidOperationException("Нет файла WinDivert64.sys — скорее всего, его удалил антивирус. Добавьте папку модуля в исключения и переустановите модуль.");
+            throw new InvalidOperationException("Нет файла WinDivert64.sys: удалён антивирусом. Нужны исключение для папки модуля и переустановка модуля.");
 
         files.EnsureUserLists();
         await EnableTcpTimestampsAsync(ct);
@@ -119,7 +119,7 @@ public sealed class ZapretModule : ModuleBase, IModuleInstallHooks
             if (p.WaitForExit(2500))
             {
                 SetStatus(ModuleState.Error, "winws.exe сразу завершился",
-                    $"Код выхода {p.ExitCode}. Нажмите «Запустить в окне», чтобы увидеть сообщение winws. Частые причины: антивирус удалил WinDivert, запущен другой обход блокировок (GoodbyeDPI), служба BFE выключена.");
+                    $"Код выхода {p.ExitCode}. Сообщение winws — «Запустить в окне». Частые причины: антивирус удалил WinDivert, запущен другой обход блокировок (GoodbyeDPI), выключена служба BFE.");
                 return;
             }
         }
@@ -176,10 +176,10 @@ public sealed class ZapretModule : ModuleBase, IModuleInstallHooks
 
         var foreign = ProcessUtil.Find("winws.exe").Where(p => !OurPath(p)).ToList();
         if (foreign.Count > 0)
-            Conflict = "Запущен другой winws.exe (не из этого модуля) — например, отдельно скачанный zapret. Закройте его, чтобы не было двойной обработки трафика.";
+            Conflict = "Запущен winws.exe не из этого модуля (отдельная копия zapret).";
         foreach (var p in foreign) p.Dispose();
         if (service != ServiceState.NotInstalled && !ourService)
-            Conflict = "Установлена служба «zapret» из другой папки. Удалите её (service.bat → Remove Services) или в диагностике этого модуля.";
+            Conflict = $"Установлена служба «zapret» из другой папки: {ReadServiceImagePath()}. Удаление — кнопка «Удалить службу Windows».";
 
         if (running)
         {

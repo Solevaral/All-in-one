@@ -31,6 +31,12 @@ public sealed class ExternalModule(ModuleContext context) : ModuleBase(context)
 
     private bool UsesIpc => M.Ipc is not null;
 
+    /// <summary>PID программы по ответу hello (есть, пока есть связь).</summary>
+    public int? ProcessId => _link is { IsConnected: true } ? _hello?.ProcessId : null;
+
+    /// <summary>Просит программу показать главное окно.</summary>
+    public Task ShowWindowAsync() => CallQuietAsync(HostLinkProtocol.Methods.ShowWindow, null);
+
     public override IReadOnlyList<ModuleAction> Actions
     {
         get
@@ -92,28 +98,35 @@ public sealed class ExternalModule(ModuleContext context) : ModuleBase(context)
             foreach (var p in alive) p.Dispose();
             if (!any && DateTime.UtcNow - started > TimeSpan.FromSeconds(2))
             {
-                SetStatus(ModuleState.Error, "Сразу завершился", "Программа закрылась сразу после запуска. Проверьте, не запущена ли она отдельно.");
+                SetStatus(ModuleState.Error, "Сразу завершился", "Программа закрылась сразу после запуска.");
                 return;
             }
         }
 
         if (UsesIpc && _link is null)
         {
-            SetStatus(ModuleState.Error, "Нет связи", "Программа запущена, но не отвечает по каналу IPC. Возможно, установлена версия без режима --hosted.");
+            SetStatus(ModuleState.Error, "Нет связи", "Программа запущена, но не отвечает по каналу IPC: установлена версия без режима --hosted.");
         }
     }
 
     public override async Task StopAsync(StopReason reason, CancellationToken ct)
     {
-        await RefreshAsync(ct);
+        // Остановка и опрос состояния не должны пересекаться: опрос, начатый до остановки, успевал найти
+        // ещё живой процесс, ждал переподключения к уже закрытому каналу и после остановки записывал
+        // устаревшее «Работает» (а следом «Завершился» — как будто программа закрылась сама).
+        _stopping = true;
+        await _refreshGate.WaitAsync(ct);
         var processes = FindProcesses();
-        if (processes.Count == 0 && _link is null)
+        if (processes.Count == 0)
         {
+            await DisconnectAsync();
+            _wasRunning = false;
+            _stopping = false;
+            _refreshGate.Release();
             SetStatus(ModuleStatus.Stopped);
             return;
         }
 
-        _stopping = true;
         SetStatus(ModuleState.Stopping, "Остановка…");
         var timeout = TimeSpan.FromSeconds(Math.Max(3, M.Stop.TimeoutSec));
 
@@ -135,8 +148,7 @@ public sealed class ExternalModule(ModuleContext context) : ModuleBase(context)
 
                 if (decision == ForceStopDecision.Cancel)
                 {
-                    _stopping = false;
-                    await RefreshAsync(ct);
+                    SetStatus(ModuleState.Running, "Остановка отменена");
                     throw new StopCancelledException($"Остановка «{M.Name}» отменена.");
                 }
 
@@ -158,6 +170,7 @@ public sealed class ExternalModule(ModuleContext context) : ModuleBase(context)
         finally
         {
             _stopping = false;
+            _refreshGate.Release();
             foreach (var p in processes) p.Dispose();
         }
     }
@@ -211,7 +224,7 @@ public sealed class ExternalModule(ModuleContext context) : ModuleBase(context)
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
         while (DateTime.UtcNow < deadline)
         {
-            var leftovers = ProcessUtil.FindUnder(Context.ModuleDir);
+            var leftovers = ProcessUtil.FindUnder(Context.ProgramDir);
             var portBusy = M.Detect?.Port is { } port && ProcessUtil.IsPortListening(port);
             foreach (var p in leftovers) p.Dispose();
             if (leftovers.Count == 0 && !portBusy) return;
@@ -228,7 +241,7 @@ public sealed class ExternalModule(ModuleContext context) : ModuleBase(context)
             return;
         }
 
-        if (!await _refreshGate.WaitAsync(0, ct)) return;
+        if (_stopping || !await _refreshGate.WaitAsync(0, ct)) return;
         try
         {
             var processes = FindProcesses();
@@ -239,11 +252,11 @@ public sealed class ExternalModule(ModuleContext context) : ModuleBase(context)
             {
                 await DisconnectAsync();
                 if (_stopping) return;
-                if (M.Detect?.Mutex is { } mutex && ProcessUtil.MutexExists(mutex))
+                if (FindForeignCopy() is { } foreign)
                 {
-                    // Мьютекс занят, а нашего процесса нет — работает отдельно установленная копия.
+                    // Нашего процесса нет, а программа работает — это отдельно установленная копия.
                     SetStatus(ModuleState.Error, "Запущена отдельная копия",
-                        $"«{M.Name}» уже запущен не из каркаса. Закройте его, чтобы каркас мог управлять модулем.");
+                        $"«{M.Name}» запущен не из All in One: {foreign}. Закройте его, чтобы All in One мог управлять модулем.");
                     return;
                 }
                 if (_wasRunning && Status.State == ModuleState.Running)
@@ -300,7 +313,7 @@ public sealed class ExternalModule(ModuleContext context) : ModuleBase(context)
     private async Task TryConnectAsync(TimeSpan timeout, CancellationToken ct)
     {
         await DisconnectAsync();
-        var link = await HostLinkClient.TryConnectAsync(PipeName, Context.ModuleDir, timeout, ct);
+        var link = await HostLinkClient.TryConnectAsync(PipeName, Context.ProgramDir, timeout, ct);
         if (link is null) return;
 
         try
@@ -363,6 +376,27 @@ public sealed class ExternalModule(ModuleContext context) : ModuleBase(context)
         {
             Context.Notify(M.Name, ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Отдельная копия программы: процесс с тем же именем не из папки модуля или занятый мьютекс.
+    /// Возвращает путь (или описание), null — копии нет.
+    /// </summary>
+    private string? FindForeignCopy()
+    {
+        if (M.Run is null) return null;
+        var name = M.Detect?.Process ?? Path.GetFileName(ExePath);
+        var root = Path.GetFullPath(Context.ProgramDir).TrimEnd('\\') + "\\";
+        foreach (var p in ProcessUtil.Find(name))
+        {
+            using (p)
+            {
+                var path = ProcessUtil.TryGetPath(p);
+                if (path is null) return $"{name} (процесс {p.Id})";
+                if (!path.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return path;
+            }
+        }
+        return M.Detect?.Mutex is { } mutex && ProcessUtil.MutexExists(mutex) ? name : null;
     }
 
     private List<Process> FindProcesses()

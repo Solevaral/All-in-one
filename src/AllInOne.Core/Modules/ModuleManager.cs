@@ -71,6 +71,8 @@ public sealed class ModuleManager : IHostServices, IAsyncDisposable
 
     public Version HostVersion => RuntimeInfo.HostVersion;
 
+    public bool ExperimentalFeatures => Settings.ExperimentalFeatures;
+
     public IReadOnlyList<ModuleEntry> Entries => _entries;
 
     public IEnumerable<ModuleEntry> Installed => _entries.Where(e => e.IsInstalled);
@@ -94,12 +96,18 @@ public sealed class ModuleManager : IHostServices, IAsyncDisposable
     private void Rebuild()
     {
         var installed = new Dictionary<string, ModuleManifest>(StringComparer.OrdinalIgnoreCase);
-        if (Directory.Exists(AppPaths.Modules))
+        if (Directory.Exists(AppPaths.ModulesData))
         {
-            foreach (var dir in Directory.EnumerateDirectories(AppPaths.Modules))
+            foreach (var dir in Directory.EnumerateDirectories(AppPaths.ModulesData))
             {
                 var manifest = JsonFile.Read<ModuleManifest>(Path.Combine(dir, "module.json"));
-                if (manifest is not null && !string.IsNullOrWhiteSpace(manifest.Id)) installed[manifest.Id] = manifest;
+                if (manifest is null || string.IsNullOrWhiteSpace(manifest.Id)) continue;
+                if (manifest.Schema != ModuleManifest.CurrentSchema)
+                {
+                    Log.Warn($"{dir}: module.json схемы {manifest.Schema}, пропущен");
+                    continue;
+                }
+                installed[manifest.Id] = manifest;
             }
         }
 
@@ -146,7 +154,8 @@ public sealed class ModuleManager : IHostServices, IAsyncDisposable
             return false;
         }
 
-        entry = new ModuleEntry(context, module, States.Get(manifest.Id));
+        context.UserState = States.Get(manifest.Id);
+        entry = new ModuleEntry(context, module, context.UserState);
         var captured = entry;
         module.StatusChanged += (_, _) => RaiseStatus(captured);
         module.UnexpectedExit += (_, _) => OnUnexpectedExit(captured);
@@ -257,7 +266,7 @@ public sealed class ModuleManager : IHostServices, IAsyncDisposable
         {
             var source = entry.CatalogItem?.Manifest ?? entry.Context.Manifest;
             if (entry.CatalogItem?.RequiresHostUpdate == true)
-                throw new InvalidOperationException("Этому модулю нужна более новая версия каркаса. Обновите All-in-one.");
+                throw new InvalidOperationException("Модулю нужна более новая версия All in One.");
             await Installer.InstallFromCatalogAsync(entry.Module, entry.Context, source, progress, ct);
             entry.UserState.LatestKnown = entry.Context.Manifest.Version;
             entry.UserState.PendingUpdate = null;
@@ -351,7 +360,7 @@ public sealed class ModuleManager : IHostServices, IAsyncDisposable
     private void OnUnexpectedExit(ModuleEntry entry)
     {
         Log.Warn($"{entry.Id}: процесс завершился сам");
-        if (!entry.UserState.RestartOnCrash || entry.IsBusy) return;
+        if (!Settings.ExperimentalFeatures || !entry.UserState.RestartOnCrash || entry.IsBusy) return;
         _ = InvokeOnUiAsync(async () =>
         {
             try { await StartAsync(entry); }
@@ -392,6 +401,21 @@ public sealed class ModuleManager : IHostServices, IAsyncDisposable
                 }
             }
 
+            if (Settings.CheckHostUpdates)
+            {
+                try
+                {
+                    var hostUpdate = await new HostUpdater(GitHub).CheckAsync(_cts.Token);
+                    if (hostUpdate is not null && !userInitiated && HostUpdate?.Version != hostUpdate.Version)
+                        _ui.Notify("Обновление All in One", $"Версия {hostUpdate.Version}. Установить: «Обновления».");
+                    HostUpdate = hostUpdate;
+                }
+                catch (Exception ex) when (ex is GitHubException or HttpRequestException or TaskCanceledException)
+                {
+                    errors.Add($"All in One: {ex.Message}");
+                }
+            }
+
             Settings.LastUpdateCheck = DateTime.Now;
             Settings.Save();
 
@@ -409,7 +433,7 @@ public sealed class ModuleManager : IHostServices, IAsyncDisposable
                     {
                         entry.UserState.PendingUpdate = entry.AvailableUpdate;
                         _ui.Notify("Обновление отложено",
-                            $"{entry.Name} {entry.AvailableUpdate} будет установлено при следующем запуске каркаса. Чтобы обновить сейчас, откройте «Обновления».");
+                            $"{entry.Name} {entry.AvailableUpdate} установится при следующем запуске All in One.");
                     }
                     continue;
                 }
@@ -426,6 +450,13 @@ public sealed class ModuleManager : IHostServices, IAsyncDisposable
             }
 
             States.Save();
+
+            // Ошибки фоновой проверки — одним уведомлением: при недоступном GitHub они у всех модулей одинаковые.
+            if (!userInitiated && errors.Count > 0)
+            {
+                var first = GitHub.LastError?.Message ?? errors[0];
+                _ui.Notify("Обновления не проверены", errors.Count > 1 ? $"{first} (ошибок: {errors.Count})" : first);
+            }
         }
         finally
         {
@@ -437,6 +468,9 @@ public sealed class ModuleManager : IHostServices, IAsyncDisposable
     }
 
     public IReadOnlyList<string> LastCheckErrors { get; private set; } = [];
+
+    /// <summary>Новая версия All in One, найденная последней проверкой (null — нет или не проверялось).</summary>
+    public ReleaseChoice? HostUpdate { get; private set; }
 
     // ---------- IHostServices ----------
 

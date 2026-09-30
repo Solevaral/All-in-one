@@ -21,6 +21,12 @@ public sealed class HostSettings
     /// <summary>Пользователь уже видел предупреждение о пути установки.</summary>
     public bool PathWarningShown { get; set; }
 
+    /// <summary>
+    /// Экспериментальные функции: перезапуск модуля после неожиданного завершения,
+    /// встраивание окна программы в окно All in One.
+    /// </summary>
+    public bool ExperimentalFeatures { get; set; }
+
     /// <summary>Адрес удалённого каталога. Пусто — адрес по умолчанию.</summary>
     public string? CatalogUrl { get; set; }
 

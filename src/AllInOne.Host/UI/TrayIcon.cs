@@ -22,7 +22,7 @@ internal sealed class TrayIcon : IDisposable
     private readonly MessageWindow _window;
     private readonly uint _taskbarCreated;
     private IntPtr _hIcon;
-    private string _tip = "All-in-one";
+    private string _tip = "All in One";
     private bool _added;
     private bool _disposed;
 

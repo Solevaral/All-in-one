@@ -55,8 +55,8 @@ internal sealed class ShutdownTimerView : UserControl
                 title,
                 left,
                 UiKit.Hint(TimerState.EndsSession(s.Action)
-                    ? "Перед этим каркас бережно остановит все модули. За минуту появится окно с отменой."
-                    : "Модули останутся работать. За минуту появится окно с отменой."),
+                    ? "Перед этим All in One остановит модули. За минуту до срабатывания — окно с отменой."
+                    : "Модули не останавливаются. За минуту до срабатывания — окно с отменой."),
                 UiKit.Buttons(
                     UiKit.AccentButton("Отменить", _module.Cancel),
                     UiKit.Button("+10 мин", () => _module.Postpone(TimeSpan.FromMinutes(10))),
@@ -65,7 +65,7 @@ internal sealed class ShutdownTimerView : UserControl
         }
         else
         {
-            _current.Content = UiKit.Card(UiKit.Section("Таймер"), UiKit.Hint("Таймер не задан. Задайте время ниже или воспользуйтесь меню в трее."));
+            _current.Content = UiKit.Card(UiKit.Section("Таймер"), UiKit.Hint("Таймер не задан."));
         }
     }
 
@@ -103,7 +103,7 @@ internal sealed class ShutdownTimerView : UserControl
         _inPanel.Children.Add(UiKit.Row("", presets));
 
         _atPanel.Children.Add(UiKit.Row("Время (ЧЧ:ММ)", _time));
-        _atPanel.Children.Add(UiKit.Row("", UiKit.Hint("Если это время сегодня уже прошло, таймер сработает завтра.")));
+        _atPanel.Children.Add(UiKit.Row("", UiKit.Hint("Прошедшее сегодня время — значит завтра.")));
 
         panel.Children.Add(_inPanel);
         panel.Children.Add(_atPanel);
@@ -113,7 +113,7 @@ internal sealed class ShutdownTimerView : UserControl
             Enum.GetValues<PowerAction>().Select(a => (a, TimerState.Title(a))),
             _action, a => _action = a)));
         panel.Children.Add(UiKit.Toggle("Закрывать программы принудительно", _force, on => _force = on,
-            "Не ждать программ, которые спрашивают «сохранить изменения?». Несохранённые данные будут потеряны."));
+            "Без ожидания программ с вопросом о сохранении. Несохранённые данные теряются."));
 
         panel.Children.Add(UiKit.Buttons(UiKit.AccentButton("Запустить таймер", Arm)));
         return UiKit.Card(panel);

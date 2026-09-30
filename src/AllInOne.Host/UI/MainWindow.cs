@@ -25,7 +25,7 @@ internal sealed class MainWindow : Window
 
     public MainWindow()
     {
-        Title = "All-in-one";
+        Title = "All in One";
         Width = 1120;
         Height = 740;
         MinWidth = 900;
@@ -104,7 +104,7 @@ internal sealed class MainWindow : Window
         var brand = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(6, 0, 0, 22) };
         brand.Children.Add(new Image { Source = BitmapFrame.Create(new Uri("pack://application:,,,/app.ico")), Width = 22, Height = 22, Margin = new Thickness(0, 0, 10, 0) });
         var titles = new StackPanel();
-        titles.Children.Add(new TextBlock { Text = "All-in-one", FontSize = 16, FontWeight = FontWeights.SemiBold });
+        titles.Children.Add(new TextBlock { Text = "All in One", FontSize = 16, FontWeight = FontWeights.SemiBold });
         titles.Children.Add(new TextBlock { Text = "версия " + RuntimeInfo.HostVersionText, FontSize = 11, Foreground = UiKit.Brush("SubText") });
         brand.Children.Add(titles);
         _nav.Children.Add(brand);
@@ -159,7 +159,7 @@ internal sealed class MainWindow : Window
     protected override void OnClosing(CancelEventArgs e)
     {
         base.OnClosing(e);
-        if (Manager.Settings.CloseToTray && !e.Cancel)
+        if (Manager.Settings.CloseToTray && !e.Cancel && !App.Current.IsExiting)
         {
             // Крестик сворачивает в трей: модули продолжают работать под присмотром каркаса.
             e.Cancel = true;

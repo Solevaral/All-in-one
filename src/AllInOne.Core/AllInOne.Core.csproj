@@ -3,7 +3,7 @@
   <PropertyGroup>
     <RootNamespace>AllInOne.Core</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Description>Ядро All-in-one: каталог, установка и обновление модулей, процессы, IPC.</Description>
+    <Description>Ядро All in One: каталог, установка и обновление модулей, процессы, IPC.</Description>
   </PropertyGroup>
 
   <ItemGroup>

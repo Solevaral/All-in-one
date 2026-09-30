@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Interop;
@@ -14,11 +14,21 @@ namespace AllInOne.Host;
 
 public partial class App : Application, IHostUi
 {
-    private const string SingleInstanceName = @"Local\AllInOne.SingleInstance";
-    private const string ShowSignalName = @"Local\AllInOne.Show";
+#if DEBUG
+    // Отладочная сборка не мешает установленному All in One: свои имена мьютекса и сигналов.
+    private const string InstanceSuffix = ".Dev";
+#else
+    private const string InstanceSuffix = "";
+#endif
+    private const string SingleInstanceName = @"Local\AllInOne.SingleInstance" + InstanceSuffix;
+    private const string ShowSignalName = @"Local\AllInOne.Show" + InstanceSuffix;
+    private const string ExitSignalName = @"Local\AllInOne.Exit" + InstanceSuffix;
+    private const string StopAllSignalName = @"Local\AllInOne.StopAll" + InstanceSuffix;
 
     private Mutex? _mutex;
     private EventWaitHandle? _showSignal;
+    private EventWaitHandle? _exitSignal;
+    private EventWaitHandle? _stopAllSignal;
     private TrayIcon? _tray;
     private MainWindow? _window;
     private bool _exiting;
@@ -27,6 +37,9 @@ public partial class App : Application, IHostUi
 
     internal ModuleManager Manager { get; private set; } = null!;
 
+    /// <summary>Идёт выход: окно закрывается по-настоящему, а не сворачивается в трей.</summary>
+    internal bool IsExiting => _exiting;
+
     /// <summary>Ход длительных операций (установка, обновление) по id модуля — для страниц.</summary>
     internal Dictionary<string, InstallProgress> Progress { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -34,26 +47,36 @@ public partial class App : Application, IHostUi
 
     protected override async void OnStartup(StartupEventArgs e)
     {
+        var args = e.Args.Select(a => a.ToLowerInvariant()).ToHashSet();
+
         _mutex = new Mutex(initiallyOwned: true, SingleInstanceName, out var isFirstInstance);
         if (!isFirstInstance)
         {
-            // Уже запущен — просим первый экземпляр показать окно.
-            if (EventWaitHandle.TryOpenExisting(ShowSignalName, out var signal)) signal.Set();
+            // Уже запущен: команды установщика (--exit, --stop-all) передаются работающему экземпляру,
+            // иначе он просто показывает окно.
+            var signalName = args.Contains("--stop-all") ? StopAllSignalName : args.Contains("--exit") ? ExitSignalName : ShowSignalName;
+            if (EventWaitHandle.TryOpenExisting(signalName, out var signal)) signal.Set();
+            if (signalName != ShowSignalName) WaitForFirstInstanceExit(TimeSpan.FromMinutes(2));
             Shutdown();
             return;
         }
 
-        var args = e.Args.Select(a => a.ToLowerInvariant()).ToHashSet();
+        if (args.Contains("--exit"))
+        {
+            // Установщик закрывает All in One перед обновлением — а он и не запущен.
+            Shutdown();
+            return;
+        }
         var autostart = args.Contains("--autostart");
 
         AppPaths.EnsureCreated();
-        Log.Info($"Запуск All-in-one {RuntimeInfo.HostVersionText} ({RuntimeInfo.Flavor}), {AppPaths.Root}, аргументы: {string.Join(' ', e.Args)}");
+        Log.Info($"Запуск All in One {RuntimeInfo.HostVersionText} ({RuntimeInfo.Flavor}), {AppPaths.Root}, аргументы: {string.Join(' ', e.Args)}");
 
         DispatcherUnhandledException += (_, ev) =>
         {
             Log.Error("Необработанная ошибка UI", ev.Exception);
             ev.Handled = true;
-            _ = Dialog.AlertAsync("All-in-one", "Непредвиденная ошибка: " + ev.Exception.Message);
+            _ = Dialog.AlertAsync("All in One", "Ошибка: " + ev.Exception.Message);
         };
         AppDomain.CurrentDomain.UnhandledException += (_, ev) => Log.Error("Необработанная ошибка", ev.ExceptionObject as Exception);
         TaskScheduler.UnobservedTaskException += (_, ev) => { Log.Error("Незамеченная ошибка задачи", ev.Exception); ev.SetObserved(); };
@@ -64,6 +87,13 @@ public partial class App : Application, IHostUi
 
         Manager = new ModuleManager(this, ReadBuiltinCatalog(), ModuleFactories.All());
         Manager.Load();
+
+        if (args.Contains("--stop-all"))
+        {
+            // Удаление программы: подключиться к работающим модулям, остановить их и выйти — без окна и трея.
+            await StopAllAndExitAsync();
+            return;
+        }
         Manager.EntryStatusChanged += (_, _) => UpdateTray();
         Manager.EntriesChanged += (_, _) => UpdateTray();
 
@@ -74,9 +104,22 @@ public partial class App : Application, IHostUi
         UpdateTray();
 
         _showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, ShowSignalName);
+        _exitSignal = new EventWaitHandle(false, EventResetMode.AutoReset, ExitSignalName);
+        _stopAllSignal = new EventWaitHandle(false, EventResetMode.AutoReset, StopAllSignalName);
         new Thread(() =>
         {
-            while (_showSignal.WaitOne()) Dispatcher.BeginInvoke(ShowMainWindow);
+            var handles = new WaitHandle[] { _showSignal, _exitSignal, _stopAllSignal };
+            while (true)
+            {
+                switch (WaitHandle.WaitAny(handles))
+                {
+                    case 0: Dispatcher.BeginInvoke(ShowMainWindow); break;
+                    // Установщик обновляет All in One: выходим, модули остаются работать.
+                    case 1: Dispatcher.BeginInvoke(() => _ = ShutdownHostAsync()); return;
+                    // Удаление программы: останавливаем модули и выходим.
+                    case 2: Dispatcher.BeginInvoke(() => _ = StopAllAndExitAsync()); return;
+                }
+            }
         }) { IsBackground = true, Name = "AllInOne.Signal" }.Start();
 
         if (!autostart && !Manager.Settings.StartMinimized) ShowMainWindow();
@@ -112,6 +155,7 @@ public partial class App : Application, IHostUi
             // Запуск → снимок страницы → бережная остановка, с записью статусов в лог.
             ShowMainWindow();
             var shotDir = Arg("--dev-screenshots");
+            if (shotDir is not null) System.IO.Directory.CreateDirectory(shotDir);
             foreach (var id in cycleIds.Split(',', StringSplitOptions.RemoveEmptyEntries))
             {
                 if (Manager.Find(id) is not { IsInstalled: true } entry) continue;
@@ -130,6 +174,12 @@ public partial class App : Application, IHostUi
                     }
                     await Manager.StopAsync(entry);
                     Log.Info($"[dev] {id} после остановки: {entry.Module.Status}");
+                    for (var i = 1; i <= 3; i++)
+                    {
+                        await Task.Delay(2000);
+                        await Manager.RefreshAllAsync();
+                        Log.Info($"[dev] {id} через {i * 2} с после остановки: {entry.Module.Status}");
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -154,6 +204,39 @@ public partial class App : Application, IHostUi
         }
     }
 #endif
+
+    private async Task StopAllAndExitAsync()
+    {
+        _exiting = true;
+        try
+        {
+            await Manager.RefreshAllAsync();
+            await Manager.StopAllModulesAsync(StopReason.Uninstall, exceptId: null, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Остановка модулей перед удалением", ex);
+        }
+        await ShutdownHostAsync();
+    }
+
+    /// <summary>Ждёт, пока первый экземпляр освободит мьютекс (закроется).</summary>
+    private static void WaitForFirstInstanceExit(TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                if (!Mutex.TryOpenExisting(SingleInstanceName, out var existing)) return;
+                existing.Dispose();
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+            Thread.Sleep(300);
+        }
+    }
 
     private static string ReadBuiltinCatalog()
     {
@@ -200,7 +283,7 @@ public partial class App : Application, IHostUi
         var installed = Manager.Installed.ToList();
         var running = installed.Count(e => e.Module.Status.State == ModuleState.Running);
         var errors = installed.Count(e => e.Module.Status.State == ModuleState.Error);
-        var tip = $"All-in-one — работает {running} из {installed.Count}";
+        var tip = $"All in One — работает {running} из {installed.Count}";
         if (errors > 0) tip += $", ошибок: {errors}";
         _tray.Update(tip, attention: errors > 0);
     }
@@ -209,7 +292,7 @@ public partial class App : Application, IHostUi
     {
         var menu = new ContextMenu { Placement = PlacementMode.MousePoint };
 
-        var open = new MenuItem { Header = "Открыть All-in-one", FontWeight = FontWeights.SemiBold };
+        var open = new MenuItem { Header = "Открыть All in One", FontWeight = FontWeights.SemiBold };
         open.Click += (_, _) => ShowMainWindow();
         menu.Items.Add(open);
 
@@ -265,9 +348,9 @@ public partial class App : Application, IHostUi
         if (active.Count > 0 && Manager.Settings.OnExit == ExitBehavior.Ask)
         {
             var names = string.Join(", ", active.Select(a => a.Name));
-            var choice = await Dialog.ShowAsync("Выход из All-in-one",
-                $"Сейчас работают: {names}.\n\nОстановить их или оставить работать без каркаса? Каркас подключится к ним при следующем запуске.",
-                "Остановить и выйти", "Оставить работать", "Отмена");
+            var choice = await Dialog.ShowAsync("Выход из All in One",
+                $"Запущены: {names}.\n\nОставленные модули продолжат работать, All in One подключится к ним при следующем запуске.",
+                "Остановить и выйти", "Выйти, оставив модули", "Отмена");
             if (choice is < 0 or 2) return;
             stopModules = choice == 0;
         }
@@ -297,11 +380,12 @@ public partial class App : Application, IHostUi
     internal async Task ShutdownHostAsync()
     {
         _exiting = true;
-        Log.Info("Выход из каркаса");
+        Log.Info("Выход из All in One");
         _window?.Close();
         _tray?.Dispose();
         await Manager.DisposeAsync();
-        _mutex?.ReleaseMutex();
+        try { _mutex?.ReleaseMutex(); }
+        catch (ApplicationException) { }   // не тот поток — мьютекс освободится вместе с процессом
         Shutdown();
     }
 

@@ -5,19 +5,23 @@ namespace AllInOne.Sdk;
 
 /// <summary>
 /// Описание модуля. Один и тот же формат используется в каталоге (без версии)
-/// и в modules\&lt;id&gt;\module.json установленного модуля (с версией).
+/// и в data\modules\&lt;id&gt;\module.json установленного модуля (с версией).
 /// Установленный манифест хранит копию <see cref="Source"/>, поэтому модуль
 /// обновляется, даже если запись пропала из каталога.
 /// </summary>
 public sealed class ModuleManifest
 {
-    public const int CurrentSchema = 1;
+    /// <summary>2 — раскладка «программа в modules\&lt;Имя&gt;, служебное в data» (каркас 0.2+).</summary>
+    public const int CurrentSchema = 2;
 
     public int Schema { get; set; } = CurrentSchema;
 
     public string Id { get; set; } = "";
 
     public string Name { get; set; } = "";
+
+    /// <summary>Имя папки программы в modules\. По умолчанию — название модуля.</summary>
+    public string? Folder { get; set; }
 
     public string? Description { get; set; }
 
@@ -30,7 +34,7 @@ public sealed class ModuleManifest
     /// <summary>
     /// external — отдельный процесс под управлением общего драйвера;
     /// adapter:&lt;имя&gt; — встроенный в каркас адаптер (zapret, tgwsproxy);
-    /// builtin:&lt;имя&gt; — встроенный модуль без payload (таймер выключения).
+    /// builtin:&lt;имя&gt; — встроенный модуль без программы (таймер выключения).
     /// </summary>
     public string Kind { get; set; } = "external";
 
@@ -53,13 +57,19 @@ public sealed class ModuleManifest
     public StopSpec Stop { get; set; } = new();
 
     /// <summary>
-    /// Пути (относительно папки модуля, glob с * и **), которые переносятся
-    /// из старой версии в новую при обновлении. data\** сохраняется всегда.
+    /// Пути внутри папки программы (glob с * и **), которые переносятся из старой версии
+    /// в новую при обновлении. Данные в data\modules\&lt;id&gt; сохраняются всегда.
     /// </summary>
     public List<string> Preserve { get; set; } = [];
 
     /// <summary>Собственный автозапуск программы, который каркас убирает, чтобы не было двойного старта.</summary>
     public LegacyAutostartSpec? LegacyAutostart { get; set; }
+
+    /// <summary>Своё окно программы можно встроить в окно каркаса (экспериментально).</summary>
+    public bool Embeddable { get; set; }
+
+    [JsonIgnore]
+    public string ProgramFolder => Folder is { Length: > 0 } f ? f : SafeName(Name.Length > 0 ? Name : Id);
 
     [JsonIgnore]
     public bool IsExternal => Kind == "external";
@@ -69,6 +79,13 @@ public sealed class ModuleManifest
 
     [JsonIgnore]
     public bool IsAdapter => Kind.StartsWith("adapter:", StringComparison.Ordinal);
+
+    private static string SafeName(string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var clean = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim(' ', '.');
+        return clean.Length == 0 ? "module" : clean;
+    }
 
     public ModuleManifest Clone() =>
         JsonSerializer.Deserialize<ModuleManifest>(JsonSerializer.Serialize(this, Json.Options), Json.Options)!;
@@ -92,13 +109,13 @@ public sealed class ModuleSource
     public string? AssetArm64 { get; set; }
 
     /// <summary>
-    /// Как разложить скачанное: exe — положить файл в payload под именем <see cref="SaveAs"/>;
-    /// zip — распаковать в payload (верхняя общая папка архива отрезается).
+    /// Как разложить скачанное: file — положить файл в папку программы под именем <see cref="SaveAs"/>;
+    /// zip — распаковать в папку программы (верхняя общая папка архива отрезается).
     /// По умолчанию определяется по расширению ассета.
     /// </summary>
     public string? Layout { get; set; }
 
-    /// <summary>Имя, под которым exe-ассет кладётся в payload (чтобы путь запуска не менялся от версии к версии).</summary>
+    /// <summary>Имя, под которым exe-ассет кладётся в папку программы (чтобы путь запуска не менялся от версии к версии).</summary>
     public string? SaveAs { get; set; }
 
     public bool Prerelease { get; set; }
@@ -106,13 +123,13 @@ public sealed class ModuleSource
 
 public sealed class RunSpec
 {
-    /// <summary>Путь к exe относительно папки модуля.</summary>
+    /// <summary>Путь к exe относительно папки программы.</summary>
     public string Exe { get; set; } = "";
 
     /// <summary>Аргументы; {pipe} заменяется именем канала IPC.</summary>
     public List<string> Args { get; set; } = [];
 
-    /// <summary>Рабочая папка относительно папки модуля (по умолчанию — папка exe).</summary>
+    /// <summary>Рабочая папка относительно папки программы (по умолчанию — папка exe).</summary>
     public string? WorkingDir { get; set; }
 }
 
@@ -121,7 +138,7 @@ public sealed class DetectSpec
     /// <summary>Имя мьютекса единственного экземпляра программы.</summary>
     public string? Mutex { get; set; }
 
-    /// <summary>Имя процесса (с .exe). Процесс считается нашим, только если путь совпадает с payload.</summary>
+    /// <summary>Имя процесса (с .exe). Процесс считается нашим, только если он запущен из папки программы.</summary>
     public string? Process { get; set; }
 
     /// <summary>Порт на 127.0.0.1, который программа слушает, когда работает.</summary>

@@ -18,14 +18,12 @@ internal sealed class HomePage : PageBase
     {
         Body.Children.Clear();
         Body.Children.Add(UiKit.PageTitle("Главная"));
-        Body.Children.Add(UiKit.Hint("Установленные модули. Модули работают отдельно от окна — его можно закрыть, каркас останется в трее."));
 
-        if (!Manager.Settings.PathWarningShown && AppPaths.CheckRootPath() is { Count: > 0 } problems)
+        if (AppPaths.CheckRootPath() is { Count: > 0 } problems)
         {
             Body.Children.Add(UiKit.Card(
-                UiKit.CardTitle("Папка каркаса выбрана неудачно"),
-                UiKit.Hint(string.Join("\n", problems) + $"\n\nСейчас: {AppPaths.Root}\nПереместите папку каркаса, например, в C:\\AllInOne."),
-                UiKit.Buttons(UiKit.Button("Понятно", () => { Manager.Settings.PathWarningShown = true; Manager.Settings.Save(); Refresh(); }))));
+                UiKit.CardTitle("Неподходящая папка установки"),
+                UiKit.Hint(string.Join("\n", problems) + $"\n{AppPaths.Root}")));
         }
 
         _tiles.Children.Clear();
@@ -43,9 +41,8 @@ internal sealed class HomePage : PageBase
         if (installed.Count == 0)
         {
             Body.Children.Add(UiKit.Card(
-                UiKit.CardTitle("Модулей пока нет"),
-                UiKit.Hint("Откройте каталог и установите нужные программы: zapret, TG WS Proxy, TryToCatchMe, fDimmer, magniF, таймер выключения."),
-                UiKit.Buttons(UiKit.AccentButton("Открыть каталог", () => App.Current.ShowModule("catalog")))));
+                UiKit.CardTitle("Модули не установлены"),
+                UiKit.Buttons(UiKit.AccentButton("Каталог", () => App.Current.ShowModule("catalog")))));
         }
     }
 
@@ -79,7 +76,7 @@ internal sealed class HomePage : PageBase
 
         panel.Children.Add(UiKit.StatusLine(status));
         if (entry.AvailableUpdate is { } update)
-            panel.Children.Add(new TextBlock { Text = $"Доступно обновление {update}", Foreground = UiKit.Brush("Accent"), FontSize = 12, Margin = new Thickness(0, 6, 0, 0) });
+            panel.Children.Add(new TextBlock { Text = $"Обновление {update}", Foreground = UiKit.Brush("Accent"), FontSize = 12, Margin = new Thickness(0, 6, 0, 0) });
         if (entry.LastError is { } error)
             panel.Children.Add(new TextBlock { Text = error, Foreground = UiKit.Brush("Bad"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
 
@@ -87,20 +84,16 @@ internal sealed class HomePage : PageBase
         {
             panel.Children.Add(progress);
         }
-        else if (!entry.Context.Manifest.IsBuiltIn)
-        {
-            var buttons = new WrapPanel { Margin = new Thickness(0, 12, 0, -8) };
-            if (status.IsActive)
-                buttons.Children.Add(UiKit.Button("Остановить", () => _ = ModuleOps.StopAsync(entry)).With(b => b.IsEnabled = !entry.IsBusy));
-            else
-                buttons.Children.Add(UiKit.AccentButton("Запустить", () => _ = ModuleOps.StartAsync(entry)).With(b => b.IsEnabled = !entry.IsBusy));
-            foreach (var action in entry.Module.Actions.Take(2))
-                buttons.Children.Add(UiKit.Button(action.Title, () => _ = UiKit.RunAsync(action.Execute, entry.Name)));
-            panel.Children.Add(buttons);
-        }
         else
         {
             var buttons = new WrapPanel { Margin = new Thickness(0, 12, 0, -8) };
+            if (!entry.Context.Manifest.IsBuiltIn)
+            {
+                if (status.IsActive)
+                    buttons.Children.Add(UiKit.Button("Остановить", () => _ = ModuleOps.StopAsync(entry)).With(b => b.IsEnabled = !entry.IsBusy));
+                else
+                    buttons.Children.Add(UiKit.AccentButton("Запустить", () => _ = ModuleOps.StartAsync(entry)).With(b => b.IsEnabled = !entry.IsBusy));
+            }
             foreach (var action in entry.Module.Actions.Take(2))
                 buttons.Children.Add(UiKit.Button(action.Title, () => _ = UiKit.RunAsync(action.Execute, entry.Name)));
             panel.Children.Add(buttons);

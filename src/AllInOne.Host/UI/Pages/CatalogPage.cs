@@ -17,18 +17,18 @@ internal sealed class CatalogPage : PageBase
     public CatalogPage()
     {
         Refresh();
-        if (Manager.Catalog.RemoteState is "только встроенный" or "из кэша") _ = RefreshCatalogAsync();
+        if (!Manager.Catalog.RemoteState.StartsWith("обновлён", StringComparison.Ordinal)) _ = RefreshCatalogAsync();
     }
 
     public override void Refresh()
     {
         Body.Children.Clear();
         Body.Children.Add(UiKit.PageTitle("Каталог"));
-        Body.Children.Add(UiKit.Hint($"Программы, которые можно поставить в каркас. Удалённый каталог: {Manager.Catalog.RemoteState}."));
+        Body.Children.Add(UiKit.Hint($"Каталог на GitHub: {Manager.Catalog.RemoteState}."));
         Body.Children.Add(UiKit.Buttons(
             UiKit.Button(_refreshing ? "Обновление…" : "Обновить каталог", () => _ = RefreshCatalogAsync()).With(b => b.IsEnabled = !_refreshing),
             UiKit.Button("Установить из файла…", () => _ = InstallFromFileAsync(),
-                tooltip: "Zip-архив с module.json в корне и папкой payload — для своих модулей.")));
+                tooltip: "Zip-архив с module.json в корне и папкой program.")));
 
         _list.Children.Clear();
         _cards.Clear();
@@ -70,13 +70,13 @@ internal sealed class CatalogPage : PageBase
         var meta = new List<string>();
         if (m.Author is { } a) meta.Add(a);
         if (entry.IsInstalled) meta.Add("установлен " + entry.Context.Manifest.Version);
-        if (entry.CatalogItem?.Origin == CatalogOrigin.Remote) meta.Add("из удалённого каталога");
+        if (entry.CatalogItem?.Origin == CatalogOrigin.Remote) meta.Add("из каталога на GitHub");
         if (entry.CatalogItem is null) meta.Add("установлен вручную");
         info.Children.Add(UiKit.Hint(string.Join("  ·  ", meta)));
         if (m.Description is { } d) info.Children.Add(UiKit.Text(d).With(t => t.Foreground = UiKit.Brush("SubText")));
         if (m.Homepage is { } home) info.Children.Add(UiKit.UrlLink(home.Replace("https://", ""), home).With(l => l.Margin = new Thickness(0, 6, 0, 0)));
         if (entry.CatalogItem?.RequiresHostUpdate == true)
-            info.Children.Add(new TextBlock { Text = $"Нужна версия каркаса {m.MinHostVersion} или новее.", Foreground = UiKit.Brush("Warn"), Margin = new Thickness(0, 6, 0, 0) });
+            info.Children.Add(new TextBlock { Text = $"Нужна версия All in One {m.MinHostVersion} или новее.", Foreground = UiKit.Brush("Warn"), Margin = new Thickness(0, 6, 0, 0) });
         if (ProgressFor(entry) is { } progress) info.Children.Add(progress);
         grid.Children.Add(info);
 
@@ -115,13 +115,13 @@ internal sealed class CatalogPage : PageBase
 
     private static async Task InstallFromFileAsync()
     {
-        var dialog = new OpenFileDialog { Filter = "Модуль All-in-one (*.zip)|*.zip", Title = "Установить модуль из файла" };
+        var dialog = new OpenFileDialog { Filter = "Модуль All in One (*.zip)|*.zip", Title = "Установить модуль из файла" };
         if (dialog.ShowDialog() != true) return;
         await UiKit.RunAsync(async () =>
         {
             var manifest = Core.Install.ModuleInstaller.ReadManifestFromZip(dialog.FileName);
             var go = await Dialog.ConfirmAsync("Установить модуль?",
-                $"«{manifest.Name}» ({manifest.Id}) {manifest.Version}\n\nМодули из файлов не проверяются каркасом — ставьте только то, чему доверяете.",
+                $"«{manifest.Name}» ({manifest.Id}) {manifest.Version}\n\nФайл не проверяется: программа запустится от администратора.",
                 "Установить");
             if (!go) return;
             var app = App.Current;

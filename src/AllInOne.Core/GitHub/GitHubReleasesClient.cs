@@ -23,6 +23,12 @@ public sealed class GitHubReleasesClient
         _cache = JsonFile.Read<Dictionary<string, CacheEntry>>(AppPaths.GitHubCacheFile) ?? [];
     }
 
+    /// <summary>
+    /// Последняя ошибка обращения к GitHub, даже если ответ удалось взять из кэша.
+    /// Сбрасывается при первом успешном запросе.
+    /// </summary>
+    public GitHubException? LastError { get; private set; }
+
     public async Task<GitHubRelease?> GetLatestAsync(string repo, bool includePrerelease, CancellationToken ct)
     {
         if (!includePrerelease)
@@ -47,7 +53,9 @@ public sealed class GitHubReleasesClient
         string body;
         try
         {
-            using var response = await _http.SendAsync(request, ct);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(20));
+            using var response = await _http.SendAsync(request, timeout.Token);
             if (response.StatusCode == HttpStatusCode.NotModified && cached is not null)
             {
                 body = cached.Body;
@@ -62,38 +70,53 @@ public sealed class GitHubReleasesClient
                     JsonFile.TryWrite(AppPaths.GitHubCacheFile, _cache);
                 }
             }
-            else if (cached is not null)
-            {
-                // Лимит запросов или сбой GitHub — работаем с последним известным ответом.
-                Log.Warn($"GitHub {url}: {(int)response.StatusCode}, используется кэш");
-                body = cached.Body;
-            }
             else
             {
-                throw new GitHubException($"GitHub ответил {(int)response.StatusCode} {response.ReasonPhrase}" +
-                    (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests
-                        ? " — превышен лимит запросов, попробуйте позже."
-                        : ""));
+                var error = FromStatus(response.StatusCode, url);
+                if (cached is null || error.Kind == GitHubErrorKind.NotFound) throw Remember(error);
+                // Лимит запросов или сбой GitHub — работаем с последним известным ответом, но ошибку помним.
+                Remember(error);
+                Log.Warn($"GitHub {url}: {(int)response.StatusCode}, используется кэш");
+                body = cached.Body;
+                return JsonSerializer.Deserialize<T>(body, GitHubJson.Options);
             }
         }
-        catch (HttpRequestException ex) when (cached is not null)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
         {
+            var error = Remember(Network(ex, "api.github.com"));
+            if (cached is null) throw error;
             Log.Warn($"GitHub {url} недоступен ({ex.Message}), используется кэш");
-            body = cached.Body;
+            return JsonSerializer.Deserialize<T>(cached.Body, GitHubJson.Options);
         }
 
+        LastError = null;
         return JsonSerializer.Deserialize<T>(body, GitHubJson.Options);
     }
 
     /// <summary>Скачивает ассет в файл и сверяет размер и sha256 (если GitHub его отдал).</summary>
     public async Task DownloadAsync(GitHubAsset asset, string targetFile, IProgress<double>? progress, CancellationToken ct)
     {
+        try
+        {
+            await DownloadCoreAsync(asset, targetFile, progress, ct);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            throw Remember(Network(ex, "github.com", $"Не удалось скачать {asset.Name}"));
+        }
+    }
+
+    private async Task DownloadCoreAsync(GitHubAsset asset, string targetFile, IProgress<double>? progress, CancellationToken ct)
+    {
         Directory.CreateDirectory(Path.GetDirectoryName(targetFile)!);
         var part = targetFile + ".part";
 
         using (var response = await _http.GetAsync(asset.BrowserDownloadUrl, HttpCompletionOption.ResponseHeadersRead, ct))
         {
-            response.EnsureSuccessStatusCode();
+            if (!response.IsSuccessStatusCode)
+                throw Remember(response.StatusCode == HttpStatusCode.NotFound
+                    ? new GitHubException(GitHubErrorKind.AssetMissing, $"Файл {asset.Name} удалён из релиза на GitHub.")
+                    : FromStatus(response.StatusCode, asset.BrowserDownloadUrl));
             var total = response.Content.Headers.ContentLength ?? asset.Size;
 
             await using var source = await response.Content.ReadAsStreamAsync(ct);
@@ -113,7 +136,7 @@ public sealed class GitHubReleasesClient
         if (asset.Size > 0 && length != asset.Size)
         {
             File.Delete(part);
-            throw new GitHubException($"Размер {asset.Name} не совпал: {length} вместо {asset.Size}.");
+            throw new GitHubException(GitHubErrorKind.Corrupted, $"Файл {asset.Name} скачался не полностью: {length} байт вместо {asset.Size}.");
         }
 
         if (asset.Sha256 is { } expected)
@@ -126,7 +149,7 @@ public sealed class GitHubReleasesClient
             if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
             {
                 File.Delete(part);
-                throw new GitHubException($"Контрольная сумма {asset.Name} не совпала — файл повреждён или подменён.");
+                throw new GitHubException(GitHubErrorKind.Corrupted, $"Контрольная сумма {asset.Name} не совпала: файл повреждён или подменён.");
             }
         }
 
@@ -144,6 +167,40 @@ public sealed class GitHubReleasesClient
         return release.Assets.FirstOrDefault(a => regex.IsMatch(a.Name));
     }
 
+    private GitHubException Remember(GitHubException error)
+    {
+        LastError = error;
+        return error;
+    }
+
+    private static GitHubException Network(Exception ex, string host, string? what = null)
+    {
+        var reason = ex is TaskCanceledException ? "нет ответа" : (ex.InnerException?.Message ?? ex.Message);
+        var prefix = what is null ? $"Нет связи с {host}" : $"{what}: нет связи с {host}";
+        return new GitHubException(GitHubErrorKind.Network,
+            $"{prefix} ({reason}). Нет интернета, либо GitHub недоступен или заблокирован.");
+    }
+
+    private static GitHubException FromStatus(HttpStatusCode status, string url) => status switch
+    {
+        HttpStatusCode.NotFound => new GitHubException(GitHubErrorKind.NotFound,
+            $"Не найдено на GitHub: {RepoOf(url)}. Репозиторий удалён, переименован или стал приватным."),
+        HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests => new GitHubException(GitHubErrorKind.RateLimit,
+            "GitHub ограничил число запросов (60 в час без входа). Повторите позже."),
+        HttpStatusCode.UnavailableForLegalReasons => new GitHubException(GitHubErrorKind.Blocked,
+            $"GitHub закрыл доступ к {RepoOf(url)}."),
+        _ => new GitHubException(GitHubErrorKind.Server, $"GitHub ответил ошибкой {(int)status}."),
+    };
+
+    private static string RepoOf(string url)
+    {
+        const string marker = "/repos/";
+        var i = url.IndexOf(marker, StringComparison.Ordinal);
+        if (i < 0) return url;
+        var parts = url[(i + marker.Length)..].Split('/');
+        return parts.Length >= 2 ? parts[0] + "/" + parts[1] : url;
+    }
+
     private sealed class CacheEntry
     {
         public string? ETag { get; set; }
@@ -151,7 +208,37 @@ public sealed class GitHubReleasesClient
     }
 }
 
-public sealed class GitHubException(string message) : Exception(message);
+public enum GitHubErrorKind
+{
+    /// <summary>Нет связи: нет интернета, DNS, таймаут, блокировка.</summary>
+    Network,
+
+    /// <summary>Лимит запросов API.</summary>
+    RateLimit,
+
+    /// <summary>Репозиторий не найден (удалён, переименован, приватный).</summary>
+    NotFound,
+
+    /// <summary>Доступ закрыт (451).</summary>
+    Blocked,
+
+    /// <summary>Ошибка на стороне GitHub.</summary>
+    Server,
+
+    /// <summary>В репозитории нет релизов.</summary>
+    NoReleases,
+
+    /// <summary>В релизе нет подходящего файла.</summary>
+    AssetMissing,
+
+    /// <summary>Файл скачался повреждённым.</summary>
+    Corrupted,
+}
+
+public sealed class GitHubException(GitHubErrorKind kind, string message) : Exception(message)
+{
+    public GitHubErrorKind Kind { get; } = kind;
+}
 
 public sealed class GitHubRelease
 {
