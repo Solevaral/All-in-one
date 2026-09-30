@@ -188,6 +188,13 @@ public partial class App : Application, IHostUi
             }
         }
 
+        if (Arg("--dev-dials") is { } dialsPath)
+        {
+            DevScreenshots.SaveDials(dialsPath);
+            await ShutdownHostAsync();
+            return;
+        }
+
         if (Arg("--dev-screenshots") is { } dir)
         {
             ShowMainWindow();
@@ -211,7 +218,7 @@ public partial class App : Application, IHostUi
         try
         {
             await Manager.RefreshAllAsync();
-            await Manager.StopAllModulesAsync(StopReason.Uninstall, exceptId: null, CancellationToken.None);
+            await Manager.StopAllForUninstallAsync();
         }
         catch (Exception ex)
         {

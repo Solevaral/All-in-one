@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\AllInOne.Sdk\AllInOne.Sdk.csproj" />
+    <ProjectReference Include="..\AllInOne.Core\AllInOne.Core.csproj" />
   </ItemGroup>
 
 </Project>

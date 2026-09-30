@@ -87,6 +87,41 @@ public sealed class ModuleManifest
         return clean.Length == 0 ? "module" : clean;
     }
 
+    /// <summary>
+    /// Проверка путей: каркас работает от администратора и удаляет папку модуля при удалении,
+    /// поэтому id, папка, exe, рабочая папка и preserve не должны выводить за пределы папки модуля.
+    /// Возвращает текст ошибки или null.
+    /// </summary>
+    public string? Validate()
+    {
+        if (!IsSafeId(Id)) return $"недопустимый id «{Id}» (латиница, цифры, «-», «_», «.»)";
+        if (Folder is { Length: > 0 } && !IsSafeName(Folder)) return $"недопустимая папка «{Folder}»";
+        if (Run is { } run)
+        {
+            if (!IsSafeRelative(run.Exe)) return $"run.exe «{run.Exe}» выходит за папку программы";
+            if (run.WorkingDir is { Length: > 0 } wd && !IsSafeRelative(wd)) return $"run.workingDir «{wd}» выходит за папку программы";
+        }
+        foreach (var pattern in Preserve)
+            if (!IsSafeRelative(pattern)) return $"preserve «{pattern}» выходит за папку программы";
+        if (Source?.SaveAs is { Length: > 0 } saveAs && !IsSafeName(saveAs)) return $"source.saveAs «{saveAs}» — не имя файла";
+        return null;
+    }
+
+    private static bool IsSafeId(string id) =>
+        id.Length is > 0 and <= 64 && id is not ("." or "..") &&
+        id.All(c => c is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '-' or '_' or '.');
+
+    /// <summary>Одно имя файла или папки, без разделителей и «..».</summary>
+    private static bool IsSafeName(string name) =>
+        name.Trim().Length > 0 && name is not ("." or "..") && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
+
+    /// <summary>Относительный путь (можно с * и **), ни один сегмент которого не «..».</summary>
+    private static bool IsSafeRelative(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || path.Contains(':') || path.StartsWith('/') || path.StartsWith('\\')) return false;
+        return path.Split('/', '\\').All(part => part != "..");
+    }
+
     public ModuleManifest Clone() =>
         JsonSerializer.Deserialize<ModuleManifest>(JsonSerializer.Serialize(this, Json.Options), Json.Options)!;
 }

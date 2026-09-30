@@ -134,9 +134,19 @@ public sealed class ZapretModule : ModuleBase, IModuleInstallHooks
     {
         SetStatus(ModuleState.Stopping, "Остановка…");
 
-        if (await ServiceUtil.QueryAsync(ServiceName, ct) is ServiceState.Running or ServiceState.StartPending && IsOurService())
+        var service = await ServiceUtil.QueryAsync(ServiceName, ct);
+        var ourService = service != ServiceState.NotInstalled && IsOurService();
+        if (ourService && service is ServiceState.Running or ServiceState.StartPending)
         {
             await ServiceUtil.StopAndWaitAsync(ServiceName, TimeSpan.FromSeconds(15), ct);
+        }
+        if (ourService)
+        {
+            // Остановленная служба не должна подниматься сама при загрузке Windows:
+            // автозапуск возвращается при следующем «Запустить» (служба пересоздаётся с start= auto).
+            // При удалении All in One служба удаляется совсем — иначе осталась бы служба на удалённый winws.exe.
+            if (reason == StopReason.Uninstall) await RemoveServiceAsync(ct);
+            else await Cli.RunRawAsync(Cli.System32("sc.exe"), $"config {ServiceName} start= demand", ct: ct);
         }
 
         // winws нечего сохранять: upstream тоже останавливает его через taskkill /F.
@@ -149,6 +159,7 @@ public sealed class ZapretModule : ModuleBase, IModuleInstallHooks
         // Драйвер отпускается не мгновенно: STOP_PENDING — значит, его ещё кто-то держит.
         foreach (var driver in DriverServices)
             await ServiceUtil.WaitForAsync(driver, s => s != ServiceState.StopPending, TimeSpan.FromSeconds(10), ct);
+        if (reason == StopReason.Uninstall) await RemoveDriverAsync(ct);
 
         SetStatus(ModuleStatus.Stopped);
         await RefreshAsync(ct);

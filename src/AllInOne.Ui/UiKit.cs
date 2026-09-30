@@ -140,11 +140,8 @@ public static class UiKit
         return panel;
     }
 
-    public static void OpenUrl(string url)
-    {
-        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { }
-    }
+    /// <summary>Ссылка или папка открывается от имени пользователя, без прав администратора.</summary>
+    public static void OpenUrl(string url) => AllInOne.Core.Processes.UserShell.Open(url);
 
     public static void OpenFolder(string path)
     {

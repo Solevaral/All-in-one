@@ -17,6 +17,12 @@ public sealed class TimerState
 
     public PowerAction Action { get; set; } = PowerAction.Shutdown;
 
+    /// <summary>Когда таймер взведён — от этого момента считается доля оставшегося времени.</summary>
+    public DateTime? Started { get; set; }
+
+    /// <summary>Вид обратного отсчёта на странице и в окне последней минуты.</summary>
+    public CountdownFace Face { get; set; } = CountdownFace.Ring;
+
     /// <summary>Принудительно закрывать программы (shutdown /f).</summary>
     public bool Force { get; set; }
 

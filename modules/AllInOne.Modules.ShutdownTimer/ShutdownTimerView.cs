@@ -18,6 +18,8 @@ internal sealed class ShutdownTimerView : UserControl
     private PowerAction _action;
     private bool _force;
     private bool _atMode;
+    private DateTime? _shownTarget;
+    private CountdownFace _shownFace;
 
     public ShutdownTimerView(ShutdownTimerModule module)
     {
@@ -43,17 +45,29 @@ internal sealed class ShutdownTimerView : UserControl
 
     private void OnStateChanged(object? sender, EventArgs e) => UpdateCurrent();
 
+    /// <summary>
+    /// Карточка текущего таймера. Пересобирается только при смене срока или вида отсчёта:
+    /// циферблат перерисовывается сам, а новая карточка каждую секунду сбрасывала бы его.
+    /// </summary>
     private void UpdateCurrent()
     {
         var s = _module.State;
         if (s.Target is { } target)
         {
+            if (_shownTarget == target && _shownFace == s.Face) return;
+            _shownTarget = target;
+            _shownFace = s.Face;
+
             var title = new TextBlock { Text = $"{TimerState.Title(s.Action)} в {target:HH:mm}" + (target.Date != DateTime.Today ? $" ({target:dd.MM})" : ""), Style = UiKit.Style("CardTitle") };
-            var left = new TextBlock { Text = "через " + ShutdownTimerModule.FormatSpan(target - DateTime.Now), FontSize = 28, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 6, 0, 2) };
+            var dial = new CountdownDial(target, s.Started ?? DateTime.Now, s.Face)
+            {
+                Margin = new Thickness(0, 14, 0, 14),
+                HorizontalAlignment = HorizontalAlignment.Center,
+            };
             _current.Content = UiKit.Card(
                 UiKit.Section("Таймер взведён"),
                 title,
-                left,
+                dial,
                 UiKit.Hint(TimerState.EndsSession(s.Action)
                     ? "Перед этим All in One остановит модули. За минуту до срабатывания — окно с отменой."
                     : "Модули не останавливаются. За минуту до срабатывания — окно с отменой."),
@@ -63,8 +77,9 @@ internal sealed class ShutdownTimerView : UserControl
                     UiKit.Button("+30 мин", () => _module.Postpone(TimeSpan.FromMinutes(30))),
                     UiKit.Button("+1 ч", () => _module.Postpone(TimeSpan.FromHours(1)))));
         }
-        else
+        else if (_shownTarget is not null || _current.Content is null)
         {
+            _shownTarget = null;
             _current.Content = UiKit.Card(UiKit.Section("Таймер"), UiKit.Hint("Таймер не задан."));
         }
     }
@@ -112,6 +127,16 @@ internal sealed class ShutdownTimerView : UserControl
         panel.Children.Add(UiKit.Row("Действие", UiKit.Combo(
             Enum.GetValues<PowerAction>().Select(a => (a, TimerState.Title(a))),
             _action, a => _action = a)));
+        // Вид отсчёта — сразу, в том числе для уже взведённого таймера.
+        var faces = new StackPanel { Orientation = Orientation.Horizontal };
+        foreach (var (face, text) in new[] { (CountdownFace.Ring, "Кольцо"), (CountdownFace.Digits, "Цифры"), (CountdownFace.Analog, "Циферблат") })
+        {
+            var option = new RadioButton { Content = text, Style = UiKit.Style("Segment"), GroupName = "face", IsChecked = _module.State.Face == face };
+            option.Checked += (_, _) => _module.SetFace(face);
+            faces.Children.Add(option);
+        }
+        panel.Children.Add(UiKit.Row("Отсчёт", new Border { Style = UiKit.Style("SegmentHost"), HorizontalAlignment = HorizontalAlignment.Left, Child = faces }));
+
         panel.Children.Add(UiKit.Toggle("Закрывать программы принудительно", _force, on => _force = on,
             "Без ожидания программ с вопросом о сохранении. Несохранённые данные теряются."));
 

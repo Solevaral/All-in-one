@@ -115,7 +115,15 @@ public sealed class ExternalModule(ModuleContext context) : ModuleBase(context)
         // ещё живой процесс, ждал переподключения к уже закрытому каналу и после остановки записывал
         // устаревшее «Работает» (а следом «Завершился» — как будто программа закрылась сама).
         _stopping = true;
-        await _refreshGate.WaitAsync(ct);
+        try
+        {
+            await _refreshGate.WaitAsync(ct);
+        }
+        catch (OperationCanceledException)
+        {
+            _stopping = false;   // иначе опрос состояния больше не пошёл бы
+            throw;
+        }
         var processes = FindProcesses();
         if (processes.Count == 0)
         {

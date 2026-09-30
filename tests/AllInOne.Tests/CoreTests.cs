@@ -131,3 +131,43 @@ public class UnpackTests
         }
     }
 }
+
+public class ManifestValidationTests
+{
+    private static ModuleManifest Make(string id = "app", string? folder = "App", string exe = "App.exe", params string[] preserve) =>
+        new() { Id = id, Name = "App", Folder = folder, Kind = "external", Run = new RunSpec { Exe = exe }, Preserve = [.. preserve] };
+
+    [Fact]
+    public void AcceptsNormalManifest() => Assert.Null(Make(exe: "bin/App.exe", preserve: ["data/**", "*.json"]).Validate());
+
+    [Theory]
+    [InlineData("..")]
+    [InlineData("a/b")]
+    [InlineData(@"a\b")]
+    [InlineData("")]
+    [InlineData("мод")]
+    public void RejectsBadId(string id) => Assert.NotNull(Make(id: id).Validate());
+
+    [Theory]
+    [InlineData("..")]
+    [InlineData(@"..\..\Windows")]
+    [InlineData(@"C:\Windows")]
+    public void RejectsBadFolder(string folder) => Assert.NotNull(Make(folder: folder).Validate());
+
+    [Theory]
+    [InlineData(@"..\cmd.exe")]
+    [InlineData(@"C:\Windows\System32\cmd.exe")]
+    [InlineData(@"\\server\share\x.exe")]
+    [InlineData("bin/../../x.exe")]
+    public void RejectsExeOutsideFolder(string exe) => Assert.NotNull(Make(exe: exe).Validate());
+
+    [Fact]
+    public void RejectsPreserveOutsideFolder() => Assert.NotNull(Make(preserve: ["../../**"]).Validate());
+
+    [Fact]
+    public void BuiltinCatalogPathsAreSafe()
+    {
+        var catalog = CatalogService.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "builtin-catalog.json")))!;
+        Assert.All(catalog.Modules, m => Assert.Null(m.Validate()));
+    }
+}

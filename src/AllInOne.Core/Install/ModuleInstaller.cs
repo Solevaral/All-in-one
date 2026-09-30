@@ -53,6 +53,7 @@ public sealed class ModuleInstaller(GitHubReleasesClient github)
         IProgress<InstallProgress>? progress, CancellationToken ct)
     {
         var manifest = catalogManifest.Clone();
+        if (manifest.Validate() is { } invalid) throw new InvalidDataException("Запись каталога: " + invalid + ".");
 
         // Встроенный модуль без программы: «установка» — это запись манифеста.
         if (manifest.Source is null || manifest.Source.Type == "none")
@@ -101,10 +102,10 @@ public sealed class ModuleInstaller(GitHubReleasesClient github)
         using var reader = new StreamReader(entry.Open());
         var manifest = System.Text.Json.JsonSerializer.Deserialize<ModuleManifest>(reader.ReadToEnd(), Json.Options)
                        ?? throw new InvalidDataException("module.json пустой.");
-        if (string.IsNullOrWhiteSpace(manifest.Id) || manifest.Id.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-            throw new InvalidDataException("В module.json не задан корректный id.");
         if (manifest.Schema != ModuleManifest.CurrentSchema)
             throw new InvalidDataException($"module.json схемы {manifest.Schema}, каркас понимает {ModuleManifest.CurrentSchema}.");
+        if (manifest.Validate() is { } invalid)
+            throw new InvalidDataException("module.json: " + invalid + ".");
         return manifest;
     }
 

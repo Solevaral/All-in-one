@@ -98,6 +98,11 @@ public sealed class CatalogService(HttpClient http, string builtinJson, Version 
             foreach (var m in modules)
             {
                 if (string.IsNullOrWhiteSpace(m.Id) || m.Schema != ModuleManifest.CurrentSchema) continue;
+                if (m.Validate() is { } invalid)
+                {
+                    Log.Warn($"Каталог ({origin}): запись {m.Id} пропущена — {invalid}");
+                    continue;
+                }
                 var requiresHost = m.MinHostVersion is { } min && SemVer.Compare(min, hostVersion.ToString(3)) > 0;
                 if (!result.ContainsKey(m.Id)) order.Add(m.Id);
                 result[m.Id] = new CatalogItem(m, origin, requiresHost);

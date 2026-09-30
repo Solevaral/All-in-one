@@ -26,6 +26,9 @@ public sealed class ShutdownTimerModule : ModuleBase
     private static readonly TimeSpan FirstWarning = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan LastMinute = TimeSpan.FromMinutes(1);
 
+    /// <summary>Опоздание, после которого срабатывание переспрашивается (сон, гибернация).</summary>
+    private static readonly TimeSpan OverdueGrace = TimeSpan.FromMinutes(1);
+
     private readonly DispatcherTimer _tick = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly HashSet<TimeSpan> _warned = [];
     private TimerState _state;
@@ -83,6 +86,7 @@ public sealed class ShutdownTimerModule : ModuleBase
     private void Arm(DateTime target, PowerAction action)
     {
         _state.Target = target;
+        _state.Started = DateTime.Now;
         _state.Action = action;
         _warned.Clear();
         Save();
@@ -115,6 +119,14 @@ public sealed class ShutdownTimerModule : ModuleBase
         UpdateStatus();
     }
 
+    internal void SetFace(CountdownFace face)
+    {
+        _state.Face = face;
+        Save();
+        _countdown?.SetFace(face);
+        StateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     internal void SaveFormDefaults(Action<TimerState> update)
     {
         update(_state);
@@ -134,6 +146,14 @@ public sealed class ShutdownTimerModule : ModuleBase
         }
 
         var left = target - DateTime.Now;
+        if (left < -OverdueGrace)
+        {
+            // Срок прошёл, пока компьютер спал: не выключаем сразу после пробуждения, а спрашиваем.
+            _tick.Stop();
+            CloseCountdown();
+            _ = AskOverdueAsync(target);
+            return;
+        }
         if (left <= LastMinute && _warned.Add(LastMinute))
         {
             // Последняя минута: окно поверх всех с кнопками «Отменить» и «+10 мин».
@@ -144,7 +164,6 @@ public sealed class ShutdownTimerModule : ModuleBase
             Context.Notify("Таймер выключения", $"{TimerState.Title(_state.Action)} через {FormatSpan(left)}.");
         }
 
-        _countdown?.Update(left);
         UpdateStatus();
 
         if (left <= TimeSpan.Zero) _ = ExecuteAsync();
@@ -229,7 +248,7 @@ public sealed class ShutdownTimerModule : ModuleBase
     private void ShowCountdown()
     {
         if (_countdown is not null || _state.Target is not { } target) return;
-        _countdown = new CountdownWindow(TimerState.Title(_state.Action), target - DateTime.Now);
+        _countdown = new CountdownWindow(TimerState.Title(_state.Action), target, _state.Started ?? target - LastMinute, _state.Face);
         _countdown.CancelRequested += Cancel;
         _countdown.PostponeRequested += () => Postpone(TimeSpan.FromMinutes(10));
         _countdown.Closed += (_, _) => _countdown = null;
@@ -287,12 +306,19 @@ public sealed class ShutdownTimerModule : ModuleBase
         }
 
         // Срок прошёл, пока каркас не работал: сами ничего не выключаем — спрашиваем.
+        await AskOverdueAsync(target);
+    }
+
+    /// <summary>Срок прошёл, пока каркас не работал или компьютер спал: выполнить только по подтверждению.</summary>
+    private async Task AskOverdueAsync(DateTime target)
+    {
         var action = _state.Action;
         _state.Target = null;
         Save();
         UpdateStatus();
+        Context.Log.Info($"Таймер просрочен ({target:dd.MM HH:mm}), вопрос пользователю");
         var run = await Dialog.ConfirmAsync("Таймер выключения",
-            $"«{TimerState.Title(action)}» было назначено на {target:dd.MM HH:mm}, All in One в это время не работал.\n\nВыполнить сейчас?",
+            $"«{TimerState.Title(action)}» было назначено на {target:dd.MM HH:mm}, компьютер в это время спал или All in One не работал.\n\nВыполнить сейчас?",
             "Выполнить", "Отмена");
         if (run)
         {

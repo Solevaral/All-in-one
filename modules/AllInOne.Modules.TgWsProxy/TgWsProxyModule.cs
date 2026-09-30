@@ -98,11 +98,8 @@ public sealed class TgWsProxyModule(ModuleContext context) : ModuleBase(context)
         return $"tg://proxy?server={host}&port={port}&secret=dd{secret}";
     }
 
-    internal static void OpenLink(string link)
-    {
-        try { Process.Start(new ProcessStartInfo(link) { UseShellExecute = true }); }
-        catch (System.ComponentModel.Win32Exception) { }
-    }
+    /// <summary>Telegram, если он не запущен, стартует от имени пользователя, а не администратора.</summary>
+    internal static void OpenLink(string link) => UserShell.Open(link);
 
     // ---------- жизненный цикл ----------
 

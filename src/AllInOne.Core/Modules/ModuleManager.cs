@@ -107,6 +107,11 @@ public sealed class ModuleManager : IHostServices, IAsyncDisposable
                     Log.Warn($"{dir}: module.json схемы {manifest.Schema}, пропущен");
                     continue;
                 }
+                if (manifest.Validate() is { } invalid)
+                {
+                    Log.Warn($"{dir}: module.json пропущен — {invalid}");
+                    continue;
+                }
                 installed[manifest.Id] = manifest;
             }
         }
@@ -497,6 +502,28 @@ public sealed class ModuleManager : IHostServices, IAsyncDisposable
             }
         }
 
+        if (failures.Count > 0)
+            throw new AggregateException("Не все модули остановились:\n" + string.Join("\n", failures));
+    }
+
+    /// <summary>
+    /// Перед удалением All in One: остановка всех установленных модулей, не только работающих, —
+    /// модули убирают то, что живёт вне их папки (служба zapret и драйвер WinDivert, таймер выключения).
+    /// </summary>
+    public async Task StopAllForUninstallAsync()
+    {
+        var failures = new List<string>();
+        foreach (var entry in Installed.OrderBy(e => e.Context.Manifest.Category == "Сеть" ? 0 : 1).ToList())
+        {
+            try
+            {
+                await RunAsync(entry, "Остановка", c => entry.Module.StopAsync(StopReason.Uninstall, c));
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{entry.Name}: {ex.Message}");
+            }
+        }
         if (failures.Count > 0)
             throw new AggregateException("Не все модули остановились:\n" + string.Join("\n", failures));
     }
