@@ -24,10 +24,10 @@
 - `AllInOne-<версия>-setup-net9.exe` — нужен [.NET 9 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/9.0);
 - `AllInOne-<версия>-setup-standalone.exe` — .NET внутри.
 
-Папка по умолчанию — `C:\Program Files\All in One`. Пути с не-латинскими символами и OneDrive установщик не принимает: zapret из них не работает.
+Папка по умолчанию — `C:\Program Files\AllInOne`. Пути с не-латинскими символами и OneDrive установщик не принимает: zapret из них не работает.
 
 ```
-C:\Program Files\All in One\
+C:\Program Files\AllInOne\
   AllInOne.exe
   modules\<Имя>\   программы модулей, запускаются и без All in One
   data\            настройки, каталог, логи, данные модулей

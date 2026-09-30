@@ -15,11 +15,11 @@
 ## Раскладка папки установки
 
 ```
-C:\Program Files\All in One\
+C:\Program Files\AllInOne\
   AllInOne.exe
   modules\
     zapret\            программа целиком, как в её релизе (bin, lists, general*.bat …)
-    TG WS Proxy\       TgWsProxy.exe, TgWsProxy_data\
+    TgWsProxy\         TgWsProxy.exe, TgWsProxy_data\
     TryToCatchMe\      TryToCatchMe.exe, binaries\
     fDimmer\           fDimmer.exe
     magniF\            magniF.exe

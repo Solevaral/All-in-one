@@ -32,7 +32,7 @@
       "schema": 2,
       "id": "tg-ws-proxy",
       "name": "TG WS Proxy",
-      "folder": "TG WS Proxy",
+      "folder": "TgWsProxy",
       "description": "Локальный MTProto-прокси для Telegram через WebSocket (Flowseal). Подключение кнопкой «Открыть в Telegram».",
       "category": "Сеть",
       "author": "Flowseal",

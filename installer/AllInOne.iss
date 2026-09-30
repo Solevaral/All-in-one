@@ -1,5 +1,5 @@
 ﻿; Установщик All in One (Inno Setup 6.3+ / 7).
-;   iscc /DAppVersion=0.2.0 /DFlavor=net9 /DSourceExe=..\publish\net9\AllInOne.exe installer\AllInOne.iss
+; iscc /DAppVersion=0.2.1 /DFlavor=net9 /DSourceExe=..\publish\net9\AllInOne.exe installer\AllInOne.iss
 ; Flavor: net9 (нужен .NET 9 Desktop Runtime) или standalone (.NET внутри exe).
 ;
 ; Раскладка: {app}\AllInOne.exe, {app}\modules\<Имя> — программы, {app}\data — настройки и данные модулей.
@@ -24,7 +24,7 @@ AppPublisher=Solevaral
 AppPublisherURL=https://github.com/Solevaral/All-in-one
 AppSupportURL=https://github.com/Solevaral/All-in-one/issues
 AppUpdatesURL=https://github.com/Solevaral/All-in-one/releases
-DefaultDirName={autopf}\All in One
+DefaultDirName={autopf}\AllInOne
 UsePreviousAppDir=yes
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
@@ -61,9 +61,11 @@ Name: "{autoprograms}\All in One"; Filename: "{app}\AllInOne.exe"
 Name: "{autodesktop}\All in One"; Filename: "{app}\AllInOne.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\AllInOne.exe"; Description: "Запустить All in One"; Flags: nowait postinstall skipifsilent
+; runascurrentuser: AllInOne.exe требует администратора, а postinstall по умолчанию запускает от обычного
+; пользователя — CreateProcess падал с кодом 740. Установщик уже работает от администратора.
+Filename: "{app}\AllInOne.exe"; Description: "Запустить All in One"; Flags: nowait postinstall skipifsilent runascurrentuser
 ; Обновление из самого All in One (/VERYSILENT /UPDATE): запустить новую версию, она подключится к модулям.
-Filename: "{app}\AllInOne.exe"; Parameters: "--post-update"; Flags: nowait; Check: IsUpdateMode
+Filename: "{app}\AllInOne.exe"; Parameters: "--post-update"; Flags: nowait runascurrentuser; Check: IsUpdateMode
 
 [UninstallRun]
 Filename: "{app}\AllInOne.exe"; Parameters: "--stop-all"; Flags: runhidden waituntilterminated; RunOnceId: "StopAllModules"
