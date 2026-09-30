@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Test
+        run: dotnet test tests/AllInOne.Tests/AllInOne.Tests.csproj -c Release
+
+      # Версия берётся из тега: v0.2.0 → 0.2.0. Каркас сравнивает её с релизами при самообновлении.
+      - name: Publish both flavors
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          foreach ($flavor in 'net9', 'standalone') {
+            # Варианты делят obj: без очистки второй publish переиспользует файлы первого
+            # и standalone выходит без рантайма.
+            Remove-Item -Recurse -Force src/AllInOne.Host/obj, src/AllInOne.Host/bin -ErrorAction SilentlyContinue
+            dotnet publish src/AllInOne.Host/AllInOne.Host.csproj -c Release `
+              -p:AllInOneFlavor=$flavor -p:Version=$version -o "publish/$flavor"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $zip = "AllInOne-$version-win-x64-$flavor.zip"
+            Compress-Archive -Path "publish/$flavor/AllInOne.exe" -DestinationPath $zip
+          }
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "All-in-one ${{ github.ref_name }}"
+          body: |
+            Скачайте один из вариантов и распакуйте в отдельную папку (например, `C:\AllInOne`):
+            - **AllInOne-…-win-x64-net9.zip** — лёгкий, нужен .NET 9 Desktop Runtime;
+            - **AllInOne-…-win-x64-standalone.zip** — ничего ставить не нужно.
+            Уже установленный каркас обновится сам (Обновления → Обновить каркас), модули при этом не останавливаются.
+          files: AllInOne-*.zip

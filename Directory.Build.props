@@ -1,0 +1,22 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <SatelliteResourceLanguages>ru</SatelliteResourceLanguages>
+    <Version>0.1.0</Version>
+    <Authors>Solevaral</Authors>
+    <Product>All-in-one</Product>
+    <!-- P/Invoke объявлен через DllImport намеренно, как в fDimmer и magniF. -->
+    <NoWarn>$(NoWarn);SYSLIB1054</NoWarn>
+  </PropertyGroup>
+
+  <!-- В релизе отладочные символы не нужны: в архив идёт только AllInOne.exe. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,129 @@
+{
+  // Встроенный каталог: вшивается в exe каркаса и работает без сети.
+  // Удалённый каталог (Solevaral/All-in-one-modules) перекрывает эти записи по id.
+  // Версий здесь нет — каркас берёт их из GitHub Releases каждого репозитория.
+  "schema": 1,
+  "modules": [
+    {
+      "id": "zapret",
+      "name": "zapret",
+      "description": "Обход блокировок Discord и YouTube (zapret-discord-youtube от Flowseal): выбор стратегии, Game Filter, списки, диагностика.",
+      "category": "Сеть",
+      "author": "Flowseal, bol-van",
+      "homepage": "https://github.com/Flowseal/zapret-discord-youtube",
+      "kind": "adapter:zapret",
+      "minHostVersion": "0.1.0",
+      "source": {
+        "type": "github",
+        "repo": "Flowseal/zapret-discord-youtube",
+        "asset": "zapret-discord-youtube-*.zip",
+        "layout": "zip"
+      },
+      "stop": { "strategy": "adapter", "timeoutSec": 15, "fallback": "kill" },
+      "preserve": [
+        "payload/lists/*-user.txt",
+        "payload/utils/game_filter.enabled"
+      ]
+    },
+    {
+      "id": "tg-ws-proxy",
+      "name": "TG WS Proxy",
+      "description": "Локальный MTProto-прокси для Telegram через WebSocket (Flowseal). Подключение одной кнопкой «Открыть в Telegram».",
+      "category": "Сеть",
+      "author": "Flowseal",
+      "homepage": "https://github.com/Flowseal/tg-ws-proxy",
+      "kind": "adapter:tgwsproxy",
+      "minHostVersion": "0.1.0",
+      "source": {
+        "type": "github",
+        "repo": "Flowseal/tg-ws-proxy",
+        "asset": "TgWsProxy_windows.exe",
+        "assetArm64": "TgWsProxy_windows_arm64.exe",
+        "layout": "file",
+        "saveAs": "TgWsProxy.exe"
+      },
+      "run": { "exe": "payload/TgWsProxy.exe", "args": [] },
+      "detect": { "mutex": "Local\\TgWsProxy_SingleInstance", "process": "TgWsProxy.exe", "port": 1443 },
+      "stop": { "strategy": "processTree", "timeoutSec": 10, "fallback": "kill" },
+      "preserve": [ "payload/TgWsProxy_data/**" ],
+      "legacyAutostart": { "runKey": "TgWsProxy" }
+    },
+    {
+      "id": "trytocatchme",
+      "name": "TryToCatchMe",
+      "description": "VPN-клиент на sing-box: VLESS, VMess, Shadowsocks, Trojan, маршрутизация по сервисам, TUN.",
+      "category": "Сеть",
+      "author": "Solevaral",
+      "homepage": "https://github.com/Solevaral/TryToCatchMe-client",
+      "kind": "external",
+      "minHostVersion": "0.1.0",
+      "source": {
+        "type": "github",
+        "repo": "Solevaral/TryToCatchMe-client",
+        "asset": "TryToCatchMe_*_x64-portable.zip",
+        "layout": "zip"
+      },
+      "run": { "exe": "payload/TryToCatchMe.exe", "args": [ "--hosted", "--pipe", "{pipe}" ] },
+      "detect": { "process": "TryToCatchMe.exe" },
+      "ipc": { "protocol": 1 },
+      "stop": { "strategy": "ipc", "timeoutSec": 20, "fallback": "ask" },
+      "legacyAutostart": { "runKey": "TryToCatchMe" }
+    },
+    {
+      "id": "fdimmer",
+      "name": "fDimmer",
+      "description": "Затемнение экрана вместе с системным интерфейсом: общий уровень или по мониторам, расписание.",
+      "category": "Экран",
+      "author": "Solevaral",
+      "homepage": "https://github.com/Solevaral/fDimmer",
+      "kind": "external",
+      "minHostVersion": "0.1.0",
+      "source": {
+        "type": "github",
+        "repo": "Solevaral/fDimmer",
+        "asset": "fDimmer-*-win-x64-standalone.exe",
+        "assetNet9": "fDimmer-*-win-x64-net9.exe",
+        "layout": "file",
+        "saveAs": "fDimmer.exe"
+      },
+      "run": { "exe": "payload/fDimmer.exe", "args": [ "--hosted", "--pipe", "{pipe}" ] },
+      "detect": { "mutex": "Local\\fDimmer.SingleInstance", "process": "fDimmer.exe" },
+      "ipc": { "protocol": 1 },
+      "stop": { "strategy": "ipc", "timeoutSec": 10, "fallback": "ask" },
+      "legacyAutostart": { "runKey": "fDimmer" }
+    },
+    {
+      "id": "magnif",
+      "name": "magniF",
+      "description": "Лупа по удержанию клавиши: линза следует за курсором, колесо меняет увеличение.",
+      "category": "Экран",
+      "author": "Solevaral",
+      "homepage": "https://github.com/Solevaral/magniF",
+      "kind": "external",
+      "minHostVersion": "0.1.0",
+      "source": {
+        "type": "github",
+        "repo": "Solevaral/magniF",
+        "asset": "magniF-*-win-x64-standalone.exe",
+        "assetNet9": "magniF-*-win-x64-net9.exe",
+        "layout": "file",
+        "saveAs": "magniF.exe"
+      },
+      "run": { "exe": "payload/magniF.exe", "args": [ "--hosted", "--pipe", "{pipe}" ] },
+      "detect": { "mutex": "Local\\magniF.SingleInstance", "process": "magniF.exe" },
+      "ipc": { "protocol": 1 },
+      "stop": { "strategy": "ipc", "timeoutSec": 10, "fallback": "ask" },
+      "legacyAutostart": { "runKey": "magniF" }
+    },
+    {
+      "id": "shutdown-timer",
+      "name": "Таймер выключения",
+      "description": "Выключение, перезагрузка или сон в заданное время или через заданный промежуток. Перед выключением бережно останавливает модули.",
+      "category": "Система",
+      "author": "Solevaral",
+      "kind": "builtin:shutdown-timer",
+      "minHostVersion": "0.1.0",
+      "source": { "type": "none" }
+    }
+  ]
+}

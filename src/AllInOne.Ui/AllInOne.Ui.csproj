@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>AllInOne.Ui</RootNamespace>
+    <Description>Общие элементы интерфейса каркаса и модулей: карточки, переключатели, диалоги.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AllInOne.Sdk\AllInOne.Sdk.csproj" />
+  </ItemGroup>
+
+</Project>

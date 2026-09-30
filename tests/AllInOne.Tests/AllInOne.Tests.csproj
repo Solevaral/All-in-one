@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AllInOne.Core\AllInOne.Core.csproj" />
+    <ProjectReference Include="..\..\modules\AllInOne.Modules.Zapret\AllInOne.Modules.Zapret.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Стратегии zapret-discord-youtube 1.10.3 (MIT) — парсер проверяется на настоящих файлах. -->
+    <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\catalog\builtin-catalog.json" Link="Fixtures\builtin-catalog.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

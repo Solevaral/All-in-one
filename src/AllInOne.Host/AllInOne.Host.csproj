@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <!-- WinForms нужен только ради NativeWindow и System.Drawing (иконка трея), как в magniF. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>AllInOne</AssemblyName>
+    <RootNamespace>AllInOne.Host</RootNamespace>
+    <Description>All-in-one — каркас для программ-модулей.</Description>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- WFO0003: DPI-осведомлённость задана в манифесте намеренно — это WPF-приложение. -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+    <!-- Вариант сборки: net9 (нужен .NET 9 Desktop Runtime) или standalone (self-contained). -->
+    <AllInOneFlavor Condition="'$(AllInOneFlavor)' == ''">net9</AllInOneFlavor>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="AllInOneFlavor" Value="$(AllInOneFlavor)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="app.ico" />
+    <EmbeddedResource Include="..\..\catalog\builtin-catalog.json" LogicalName="AllInOne.builtin-catalog.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AllInOne.Sdk\AllInOne.Sdk.csproj" />
+    <ProjectReference Include="..\AllInOne.Core\AllInOne.Core.csproj" />
+    <ProjectReference Include="..\AllInOne.Ui\AllInOne.Ui.csproj" />
+    <ProjectReference Include="..\..\modules\AllInOne.Modules.ShutdownTimer\AllInOne.Modules.ShutdownTimer.csproj" />
+    <ProjectReference Include="..\..\modules\AllInOne.Modules.TgWsProxy\AllInOne.Modules.TgWsProxy.csproj" />
+    <ProjectReference Include="..\..\modules\AllInOne.Modules.Zapret\AllInOne.Modules.Zapret.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <PublishSingleFile>true</PublishSingleFile>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(AllInOneFlavor)' == 'net9'">
+    <SelfContained>false</SelfContained>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(AllInOneFlavor)' == 'standalone'">
+    <SelfContained>true</SelfContained>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+
+</Project>

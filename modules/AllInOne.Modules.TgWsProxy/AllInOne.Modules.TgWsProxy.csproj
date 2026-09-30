@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>AllInOne.Modules.TgWsProxy</RootNamespace>
+    <Description>Адаптер All-in-one для Flowseal/tg-ws-proxy.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AllInOne.Sdk\AllInOne.Sdk.csproj" />
+    <ProjectReference Include="..\..\src\AllInOne.Core\AllInOne.Core.csproj" />
+    <ProjectReference Include="..\..\src\AllInOne.Ui\AllInOne.Ui.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>AllInOne.Sdk</RootNamespace>
+    <Description>Контракт модуля All-in-one: интерфейсы, манифест, протокол IPC.</Description>
+  </PropertyGroup>
+
+</Project>

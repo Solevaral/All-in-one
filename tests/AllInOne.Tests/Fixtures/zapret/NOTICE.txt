@@ -1,0 +1,2 @@
+Стратегии из zapret-discord-youtube 1.10.3 (https://github.com/Flowseal/zapret-discord-youtube),
+лицензия MIT, (c) bol-van, (c) Flowseal. Используются только как тестовые данные для парсера.

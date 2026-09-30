@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>AllInOne.Modules.ShutdownTimer</RootNamespace>
+    <Description>Встроенный модуль All-in-one: выключение ПК по времени или через интервал.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AllInOne.Sdk\AllInOne.Sdk.csproj" />
+    <ProjectReference Include="..\..\src\AllInOne.Core\AllInOne.Core.csproj" />
+    <ProjectReference Include="..\..\src\AllInOne.Ui\AllInOne.Ui.csproj" />
+  </ItemGroup>
+
+</Project>
