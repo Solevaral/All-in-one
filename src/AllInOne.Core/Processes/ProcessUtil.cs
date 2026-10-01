@@ -94,6 +94,41 @@ public static class ProcessUtil
         }
     }
 
+    /// <summary>PID родительского процесса (того, кто запустил). null — процесс недоступен.</summary>
+    public static int? TryGetParentId(int pid)
+    {
+        var handle = OpenProcess(ProcessQueryLimitedInformation, false, pid);
+        if (handle == IntPtr.Zero) return null;
+        try
+        {
+            var info = new ProcessBasicInformation();
+            var status = NtQueryInformationProcess(handle, 0, ref info, Marshal.SizeOf<ProcessBasicInformation>(), out _);
+            return status == 0 ? (int)info.InheritedFromUniqueProcessId : null;
+        }
+        finally
+        {
+            CloseHandle(handle);
+        }
+    }
+
+    /// <summary>Имя и путь процесса по PID (для сообщений). null — процесса нет.</summary>
+    public static (string Name, string? Path)? TryDescribe(int pid)
+    {
+        try
+        {
+            using var p = Process.GetProcessById(pid);
+            return (p.ProcessName + ".exe", TryGetPath(p));
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Командная строка чужого процесса (NtQueryInformationProcess, класс 60 — Windows 8.1+).</summary>
     public static unsafe string? TryGetCommandLine(int pid)
     {
@@ -243,4 +278,18 @@ public static class ProcessUtil
 
     [DllImport("ntdll.dll")]
     private static extern int NtQueryInformationProcess(IntPtr process, int infoClass, IntPtr info, int length, out int returnLength);
+
+    [DllImport("ntdll.dll")]
+    private static extern int NtQueryInformationProcess(IntPtr process, int infoClass, ref ProcessBasicInformation info, int length, out int returnLength);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ProcessBasicInformation
+    {
+        public IntPtr ExitStatus;
+        public IntPtr PebBaseAddress;
+        public IntPtr AffinityMask;
+        public IntPtr BasePriority;
+        public IntPtr UniqueProcessId;
+        public IntPtr InheritedFromUniqueProcessId;
+    }
 }

@@ -73,6 +73,12 @@ public sealed class ZapretModule : ModuleBase, IModuleInstallHooks
     /// <summary>Последняя найденная проблема окружения (чужой winws, чужая служба).</summary>
     internal string? Conflict { get; private set; }
 
+    /// <summary>Служба Windows, которая держит чужой winws.exe (отдельно установленный zapret). null — нет такой.</summary>
+    internal string? ForeignService { get; private set; }
+
+    private int _foreignPid;
+    private string? _foreignText;
+
     // ---------- запуск ----------
 
     public override async Task StartAsync(CancellationToken ct)
@@ -187,7 +193,9 @@ public sealed class ZapretModule : ModuleBase, IModuleInstallHooks
 
         var foreign = ProcessUtil.Find("winws.exe").Where(p => !OurPath(p)).ToList();
         if (foreign.Count > 0)
-            Conflict = "Запущен winws.exe не из этого модуля (отдельная копия zapret).";
+            Conflict = await DescribeForeignAsync(foreign[0], ct);
+        else
+            (ForeignService, _foreignPid, _foreignText) = (null, 0, null);
         foreach (var p in foreign) p.Dispose();
         if (service != ServiceState.NotInstalled && !ourService)
             Conflict = $"Установлена служба «zapret» из другой папки: {ReadServiceImagePath()}. Удаление — кнопка «Удалить службу Windows».";
@@ -215,6 +223,51 @@ public sealed class ZapretModule : ModuleBase, IModuleInstallHooks
     {
         var i = commandLine.IndexOf("winws.exe", StringComparison.OrdinalIgnoreCase);
         return i < 0 ? commandLine : commandLine[(i + "winws.exe".Length)..].TrimStart('"', ' ');
+    }
+
+    /// <summary>
+    /// Откуда чужой winws.exe: его путь, программа, которая его запустила, и служба Windows,
+    /// если запуск идёт из службы. Описание кэшируется по PID — опрос идёт каждые 3 с.
+    /// </summary>
+    private async Task<string> DescribeForeignAsync(Process winws, CancellationToken ct)
+    {
+        if (winws.Id == _foreignPid && _foreignText is not null) return _foreignText;
+
+        var path = ProcessUtil.TryGetPath(winws) ?? "путь недоступен";
+        var service = await ServiceUtil.FindByProcessIdAsync(winws.Id, ct);
+        string? launcher = null;
+        if (ProcessUtil.TryGetParentId(winws.Id) is { } parentId && ProcessUtil.TryDescribe(parentId) is { } parent
+            && !parent.Name.Equals("services.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            launcher = parent.Path ?? parent.Name;
+            service ??= await ServiceUtil.FindByProcessIdAsync(parentId, ct);
+        }
+
+        var text = $"Запущен winws.exe не из этого модуля: {path}.";
+        if (service is not null)
+            text += $" Его запускает служба Windows «{service}»" + (launcher is not null ? $" ({launcher})." : ".");
+        else if (launcher is not null)
+            text += $" Его запустила программа {launcher}.";
+
+        ForeignService = service;
+        _foreignPid = winws.Id;
+        _foreignText = text;
+        return text;
+    }
+
+    /// <summary>Остановить и удалить чужую службу и завершить оставшиеся от неё winws.exe.</summary>
+    internal async Task RemoveForeignServiceAsync(string service, CancellationToken ct)
+    {
+        await ServiceUtil.StopAndWaitAsync(service, TimeSpan.FromSeconds(15), ct);
+        var r = await ServiceUtil.DeleteAsync(service, ct);
+        if (!r.Ok && await ServiceUtil.QueryAsync(service, ct) != ServiceState.NotInstalled)
+            throw new InvalidOperationException($"Служба «{service}» не удалена: {r.All.Trim()}");
+        foreach (var p in ProcessUtil.Find("winws.exe").Where(p => !OurPath(p)))
+        {
+            using (p) ProcessUtil.KillTree(p);
+        }
+        (ForeignService, _foreignPid, _foreignText) = (null, 0, null);
+        Context.Log.Info($"Удалена служба «{service}» отдельной копии zapret");
     }
 
     internal List<Process> OurProcesses() => ProcessUtil.Find("winws.exe", Files.WinwsExe);

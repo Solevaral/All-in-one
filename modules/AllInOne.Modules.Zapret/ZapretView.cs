@@ -13,6 +13,7 @@ internal sealed class ZapretView : UserControl
 {
     private readonly ZapretModule _module;
     private readonly ContentControl _restartBanner = new();
+    private readonly ContentControl _conflictCard = new();
     private readonly ContentControl _strategyCard = new();
     private readonly ContentControl _gameCard = new();
     private readonly ContentControl _ipsetCard = new();
@@ -27,6 +28,7 @@ internal sealed class ZapretView : UserControl
     {
         _module = module;
         var body = new StackPanel();
+        body.Children.Add(_conflictCard);
         body.Children.Add(_restartBanner);
         body.Children.Add(_strategyCard);
         body.Children.Add(_gameCard);
@@ -45,11 +47,35 @@ internal sealed class ZapretView : UserControl
     {
         if (!_module.Status.IsActive) _pendingRestart = false;
         BuildRestartBanner();
+        BuildConflict();
     });
+
+    /// <summary>winws.exe держит служба отдельно установленного zapret — удаление этой службы.</summary>
+    private void BuildConflict()
+    {
+        if (_module.ForeignService is not { } service)
+        {
+            _conflictCard.Content = null;
+            return;
+        }
+        _conflictCard.Content = UiKit.Card(
+            UiKit.Section("Отдельная копия zapret"),
+            UiKit.Hint($"winws.exe запускает служба Windows «{service}». Пока она работает, zapret из All in One не запустится."),
+            UiKit.Buttons(UiKit.AccentButton($"Удалить службу «{service}»", () => _ = UiKit.RunAsync(async () =>
+            {
+                var go = await Dialog.ConfirmAsync($"Удалить службу «{service}»?",
+                    "Служба будет остановлена и удалена, её winws.exe завершён. Файлы той программы останутся на диске.",
+                    "Удалить", "Отмена");
+                if (!go) return;
+                await _module.RemoveForeignServiceAsync(service, CancellationToken.None);
+                await _module.RefreshAsync(CancellationToken.None);
+            }))));
+    }
 
     private void BuildAll()
     {
         BuildRestartBanner();
+        BuildConflict();
         BuildStrategy();
         BuildGameFilter();
         BuildIpset();
@@ -120,7 +146,7 @@ internal sealed class ZapretView : UserControl
         }
         panel.Children.Add(UiKit.Row("Режим запуска", new Border { Style = UiKit.Style("SegmentHost"), HorizontalAlignment = HorizontalAlignment.Left, Child = modes }));
         panel.Children.Add(UiKit.Hint(_module.Settings.Mode == RunMode.Service
-            ? "Служба Windows «zapret»: работает без All in One, стартует вместе с Windows (как Install Service в service.bat). «Остановить» останавливает службу, не удаляя её."
+            ? "Служба Windows «zapret»: работает без All in One, стартует вместе с Windows (как Install Service в service.bat). «Остановить» переводит службу на ручной запуск, «Запустить» возвращает автозапуск."
             : "winws.exe запускает All in One. Запуск при входе в Windows — автозапуск All in One и галочка «Запускать вместе с All in One»."));
 
         panel.Children.Add(UiKit.Buttons(

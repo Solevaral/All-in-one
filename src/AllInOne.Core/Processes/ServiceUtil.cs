@@ -5,6 +5,19 @@ namespace AllInOne.Core.Processes;
 /// <summary>Службы Windows через sc.exe. Состояние разбирается по числовому коду — он не зависит от языка системы.</summary>
 public static partial class ServiceUtil
 {
+    /// <summary>Служба, которая работает в процессе с этим PID (tasklist /svc). null — процесс не служба.</summary>
+    public static async Task<string?> FindByProcessIdAsync(int pid, CancellationToken ct = default)
+    {
+        var r = await Cli.RunAsync(Cli.System32("tasklist.exe"), ["/svc", "/fo", "csv", "/nh", "/fi", $"PID eq {pid}"], ct: ct);
+        if (!r.Ok) return null;
+        // "имя.exe","PID","служба1,служба2" — для обычного процесса в третьем поле «N/A» / «Н/Д».
+        var fields = r.Output.Trim().Split("\",\"");
+        if (fields.Length < 3) return null;
+        var name = fields[2].Trim('"', ' ', '\r', '\n').Split(',')[0].Trim();
+        if (name.Length == 0) return null;
+        return await QueryAsync(name, ct) == ServiceState.NotInstalled ? null : name;
+    }
+
     public static async Task<ServiceState> QueryAsync(string name, CancellationToken ct = default)
     {
         var r = await Cli.RunAsync(Cli.System32("sc.exe"), ["query", name], ct: ct);
