@@ -188,6 +188,20 @@ public partial class App : Application, IHostUi
             }
         }
 
+        if (Arg("--dev-dialog") is { } dialogPath)
+        {
+            // Тот же диалог, что при выходе с работающими модулями.
+            _ = AllInOne.Ui.Dialog.ShowAsync("Выход из All in One",
+                "Запущены: zapret, TG WS Proxy, TryToCatchMe, magniF.\n\nОставленные модули продолжат работать, All in One подключится к ним при следующем запуске.",
+                "Остановить и выйти", "Выйти, оставив модули", "Отмена");
+            await Task.Delay(800);
+            var dialog = Windows.OfType<AllInOne.Ui.Dialog>().First();
+            DevScreenshots.Save(dialog, dialogPath);
+            dialog.Close();
+            await ShutdownHostAsync();
+            return;
+        }
+
         if (Arg("--dev-dials") is { } dialsPath)
         {
             DevScreenshots.SaveDials(dialsPath);

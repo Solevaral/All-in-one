@@ -27,7 +27,8 @@ public sealed class Dialog : Window
         panel.Children.Add(new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, Foreground = UiKit.Brush("SubText"), LineHeight = 19 });
         if (extra is not null) panel.Children.Add(extra);
 
-        var row = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) };
+        // Кнопки — всегда одним рядом справа: окно расширяется под них, а не переносит на вторую строку.
+        var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) };
         for (var i = 0; i < buttons.Count; i++)
         {
             var index = i;
@@ -37,6 +38,9 @@ public sealed class Dialog : Window
             row.Children.Add(b);
         }
         panel.Children.Add(row);
+        row.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        // Поля окна: отступ 12 и внутренний отступ 22 с каждой стороны, плюс рамка.
+        Width = Math.Max(Width, row.DesiredSize.Width + 2 * (12 + 22) + 2);
 
         Content = new Border
         {
