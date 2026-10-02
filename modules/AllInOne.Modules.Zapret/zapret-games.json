@@ -3,38 +3,17 @@
   "games": [
     {
       "id": "ubisoft",
-      "name": "For Honor, Rainbow Six Siege (Ubisoft)",
+      "name": "For Honor",
       "note": "Ошибка 0004000015 «Ошибка присоединения к сессии». Проверено на For Honor 02.10.2026, стратегия general (ALT13). Ubisoft Connect входит при включённом zapret.",
       "gameFilter": "all",
       "ipset": "any",
-      "listExclude": [ "ubisoft.com", "ubi.com", "uplay.com", "ubisoftconnect.com", "ubistatic.com" ]
-    },
-    {
-      "id": "apex",
-      "name": "Apex Legends",
-      "note": "Адреса AWS и Akamai исключаются из обхода. Не проверено.",
-      "ipsetExclude": [ "52.0.0.0/8", "54.0.0.0/8", "92.123.0.0/16" ]
-    },
-    {
-      "id": "rdo",
-      "name": "Red Dead Online",
-      "note": "Домены AWS и Cloudflare добавляются в обход. Не проверено.",
-      "listGeneral": [
-        "amazonaws.com", "awsstatic.com", "awsapps.com", "aws.a2z.com", "cloudfront.net",
-        "argotunnel.com", "cfargotunnel.com", "cfl.re", "cloudflare.com", "cloudflare.net", "cloudflare.tv",
-        "cloudflare-dns.com", "cloudflare-ech.com", "cloudflare-esni.com", "cloudflare-gateway.com", "cloudflare-quic.com",
-        "cloudflareaccess.com", "cloudflareapps.com", "cloudflarebolt.com", "cloudflareclient.com", "cloudflareinsights.com",
-        "cloudflareok.com", "cloudflarepartners.com", "cloudflareportal.com", "cloudflarepreview.com", "cloudflareresolve.com",
-        "cloudflaressl.com", "cloudflarestatus.com", "cloudflarestorage.com", "cloudflarestream.com", "cloudflaretest.com",
-        "cloudflarewarp.com", "every1dns.net", "isbgpsafeyet.com", "one.one.one.one", "pacloudflare.com", "pages.dev",
-        "trycloudflare.com", "videodelivery.net", "warp.plus", "workers.dev"
+      "listExclude": [
+        "ubisoft.com",
+        "ubi.com",
+        "uplay.com",
+        "ubisoftconnect.com",
+        "ubistatic.com"
       ]
-    },
-    {
-      "id": "ss14",
-      "name": "Space Station 14",
-      "note": "Домен игры добавляется в обход. Не проверено.",
-      "listGeneral": [ "spacestation14.com" ]
     }
   ]
 }

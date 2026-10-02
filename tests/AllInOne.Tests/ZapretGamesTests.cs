@@ -73,12 +73,13 @@ public sealed class ZapretGamesTests : IDisposable
     [Fact]
     public void StatePersists()
     {
-        _games.Set(_files, "ss14", true);
+        _games.Set(_files, "ubisoft", true);
         var again = new ZapretGames(Path.Combine(_root, "data"));
         again.LoadState();
-        Assert.Contains("ss14", again.State.Enabled);
-        again.Set(_files, "ss14", false);
-        Assert.DoesNotContain("spacestation14.com", Lines(ZapretGames.ListGeneralFile));
+        Assert.Contains("ubisoft", again.State.Enabled);
+        again.Set(_files, "ubisoft", false);
+        Assert.DoesNotContain("uplay.com", Lines(ZapretGames.ListExcludeFile));
+        Assert.Equal(IpsetMode.None, _files.ReadIpsetMode());
     }
 
     [Theory]
