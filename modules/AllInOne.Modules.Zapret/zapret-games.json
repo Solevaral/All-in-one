@@ -4,7 +4,7 @@
     {
       "id": "ubisoft",
       "name": "For Honor",
-      "note": "Ошибка 0004000015 «Ошибка присоединения к сессии». Проверено на For Honor 02.10.2026, стратегия general (ALT13). Ubisoft Connect входит при включённом zapret.",
+      "note": "В игре: «Ошибка присоединения к сессии» (0004000015).",
       "gameFilter": "all",
       "ipset": "any",
       "listExclude": [
@@ -13,6 +13,14 @@
         "uplay.com",
         "ubisoftconnect.com",
         "ubistatic.com"
+      ]
+    },
+    {
+      "id": "factorio",
+      "name": "Factorio",
+      "note": "Загрузка модов с mods.factorio.com.",
+      "listGeneral": [
+        "factorio.com"
       ]
     }
   ]

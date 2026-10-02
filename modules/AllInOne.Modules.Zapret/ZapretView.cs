@@ -185,37 +185,42 @@ internal sealed class ZapretView : UserControl
 
     private bool _gamesRefreshed;
 
+    /// <summary>
+    /// Карточка «Игры»: только включённые фиксы плашками; весь список — в окне выбора с поиском,
+    /// чтобы страница не росла вместе с набором игр.
+    /// </summary>
     private void BuildGames()
     {
         var games = _module.Games;
+        var all = games.Games;
+        var enabled = all.Where(g => games.State.Enabled.Contains(g.Id)).ToList();
+
         var panel = new StackPanel();
         panel.Children.Add(UiKit.Section("Игры"));
         panel.Children.Add(UiKit.Hint(
-            "Галочка выставляет Game Filter и IPSet и дописывает строки в «Мои списки»; снятие убирает только добавленное ею. " +
+            "Фикс выставляет Game Filter и IPSet и дописывает строки в «Мои списки»; снятие убирает только добавленное им. " +
             "Работа игры не гарантирована: блокировки различаются у провайдеров и меняются. " +
-            "Рассчитано на стандартные настройки VPN-клиента: TryToCatchMe в режиме системного прокси, без TUN. " +
-            "В режиме TUN игровой трафик идёт через VPN, и фиксы могут не сработать."));
+            "Рассчитано на стандартные настройки VPN-клиента: TryToCatchMe в режиме системного прокси, без TUN."));
 
-        foreach (var game in games.Games)
+        if (enabled.Count == 0)
         {
-            var id = game.Id;
-            panel.Children.Add(UiKit.Toggle(game.Name, games.State.Enabled.Contains(id), on =>
-            {
-                try
-                {
-                    games.Set(_module.Files, id, on);
-                    Changed();
-                }
-                catch (Exception ex) when (ex is InvalidOperationException or System.IO.IOException or UnauthorizedAccessException)
-                {
-                    _ = Dialog.AlertAsync("Игры", ex.Message);
-                }
-                BuildGames();
-                BuildGameFilter();
-                BuildIpset();
-                BuildLists();
-            }, game.Note));
+            panel.Children.Add(UiKit.Hint("Фиксы не включены.").With(t => t.Margin = new Thickness(0, 8, 0, 0)));
         }
+        else
+        {
+            var chips = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
+            foreach (var game in enabled)
+                chips.Children.Add(GameChip(game));
+            panel.Children.Add(chips);
+        }
+
+        panel.Children.Add(UiKit.Buttons(
+            UiKit.AccentButton("Выбрать игры…", () => _ = ShowGamesDialogAsync()),
+            UiKit.Button("Обновить список", () => _ = UiKit.RunAsync(async () =>
+            {
+                await _module.Games.RefreshAsync(_module.Http, force: true, CancellationToken.None);
+                BuildGames();
+            }), tooltip: "Список игр загружается с GitHub сам, не чаще раза в 6 часов.")));
 
         _gamesCard.Content = UiKit.Card(panel);
 
@@ -225,6 +230,79 @@ internal sealed class ZapretView : UserControl
             _gamesRefreshed = true;
             _ = RefreshGamesAsync();
         }
+    }
+
+    /// <summary>Плашка включённой игры с кнопкой выключения.</summary>
+    private FrameworkElement GameChip(GameFix game)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        row.Children.Add(new TextBlock { Text = game.Name, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.Brush("Text") });
+        var remove = UiKit.Link("✕", () => SetGame(game.Id, false));
+        remove.Margin = new Thickness(8, 0, 0, 0);
+        remove.ToolTip = "Выключить фикс";
+        row.Children.Add(remove);
+        return new Border
+        {
+            Background = UiKit.Brush("Control"),
+            BorderBrush = UiKit.Brush("ControlStroke"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(10, 4, 8, 4),
+            Margin = new Thickness(0, 0, 8, 8),
+            Child = row,
+            ToolTip = game.Note,
+        };
+    }
+
+    private void SetGame(string id, bool on)
+    {
+        try
+        {
+            _module.Games.Set(_module.Files, id, on);
+            Changed();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.IO.IOException or UnauthorizedAccessException)
+        {
+            _ = Dialog.AlertAsync("Игры", ex.Message);
+        }
+        BuildGames();
+        BuildGameFilter();
+        BuildIpset();
+        BuildLists();
+    }
+
+    /// <summary>Окно выбора: поиск и переключатель у каждой игры; изменения применяются сразу.</summary>
+    private async Task ShowGamesDialogAsync()
+    {
+        var games = _module.Games;
+        var search = new TextBox { Margin = new Thickness(0, 12, 0, 8) };
+        var list = new StackPanel();
+        var scroll = new ScrollViewer { Content = list, MaxHeight = 420, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+
+        void Fill()
+        {
+            list.Children.Clear();
+            var needle = search.Text.Trim();
+            var shown = games.Games
+                .Where(g => needle.Length == 0 || g.Name.Contains(needle, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(g => games.State.Enabled.Contains(g.Id))
+                .ThenBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase)
+                .ToList();
+            foreach (var game in shown)
+            {
+                var id = game.Id;
+                list.Children.Add(UiKit.Toggle(game.Name, games.State.Enabled.Contains(id), on => SetGame(id, on), game.Note));
+            }
+            if (shown.Count == 0) list.Children.Add(UiKit.Hint("Ничего не найдено."));
+        }
+
+        search.TextChanged += (_, _) => Fill();
+        Fill();
+
+        var extra = new StackPanel();
+        extra.Children.Add(search);
+        extra.Children.Add(scroll);
+        await Dialog.ShowAsync("Игры", "Поиск по названию. Фикс включается и выключается сразу.", extra, "Готово");
     }
 
     private async Task RefreshGamesAsync()
