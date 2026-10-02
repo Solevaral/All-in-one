@@ -65,7 +65,7 @@ internal sealed class ModulePage : PageBase
 
         panel.Children.Add(UiKit.PageTitle(m.Name));
         var meta = new List<string>();
-        if (m.Version is { } v) meta.Add("версия " + v);
+        if (m.Version is { } v) meta.Add(v == ModuleManager.UnknownVersion ? "версия неизвестна" : "версия " + v);
         if (m.Category is { } c) meta.Add(c);
         if (m.Author is { } a) meta.Add(a);
         panel.Children.Add(UiKit.Hint(string.Join("  ·  ", meta)));

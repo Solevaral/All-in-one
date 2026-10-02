@@ -133,11 +133,61 @@ public sealed class ModuleManager : IHostServices, IAsyncDisposable
             _entries.Add(entry);
         }
 
+        AdoptManualInstalls();
+
         // Порядок как в каталоге, затем установленные вручную.
         var order = Catalog.Items.Select((item, i) => (item.Manifest.Id, i)).ToDictionary(x => x.Id, x => x.i, StringComparer.OrdinalIgnoreCase);
         _entries.Sort((a, b) => (order.GetValueOrDefault(a.Id, int.MaxValue), a.Name).CompareTo((order.GetValueOrDefault(b.Id, int.MaxValue), b.Name)));
 
         RaiseEntries();
+    }
+
+    /// <summary>
+    /// Программа распакована в modules\&lt;папка&gt; вручную (например, скачана из релиза при лимите GitHub),
+    /// а описания в data нет. Такая программа добавляется как установленная: версия — из её файлов,
+    /// неизвестная — «0.0.0», и тогда проверка обновлений предложит обновиться; обновление запишет
+    /// описание целиком.
+    /// </summary>
+    private void AdoptManualInstalls()
+    {
+        foreach (var entry in _entries.Where(e => !e.IsInstalled && e.CatalogItem is { RequiresHostUpdate: false } && !e.Context.Manifest.IsBuiltIn))
+        {
+            try
+            {
+                if (entry.Module.ProgramMarker is not { } marker || !File.Exists(entry.Context.Resolve(marker))) continue;
+
+                var manifest = entry.CatalogItem!.Manifest.Clone();
+                var version = CleanVersion(entry.Module.ReadProgramVersion());
+                manifest.Version = version ?? UnknownVersion;
+                manifest.InstalledAsset = null;
+                JsonFile.Write(entry.Context.ManifestPath, manifest);
+                entry.Context.Manifest = manifest;
+                entry.Module.OnInstallationChanged();
+
+                Log.Info($"{entry.Id}: найдена программа в {entry.Context.ProgramDir}, версия {version ?? "неизвестна"} — добавлена");
+                var text = version is null
+                    ? "Найден в папке modules и добавлен. Версия неизвестна — обновите модуль на странице «Обновления»."
+                    : $"Найден в папке modules и добавлен, версия {version}.";
+                _ = InvokeOnUiAsync(() => _ui.Notify(entry.Name, text));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Log.Warn($"{entry.Id}: программа в папке modules не добавлена — {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>Версия установленной вручную программы, которую не удалось узнать.</summary>
+    public const string UnknownVersion = "0.0.0";
+
+    /// <summary>«1.3.1+a751dab» → «1.3.1»; не похоже на версию — null.</summary>
+    public static string? CleanVersion(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var v = SemVer.Normalize(raw.Trim().Split('+', ' ')[0]);
+        // 1.2.3.0 из ресурсов exe — без нулевого четвёртого числа.
+        if (v.Count(c => c == '.') == 3 && v.EndsWith(".0", StringComparison.Ordinal)) v = v[..^2];
+        return v.Length > 0 && char.IsDigit(v[0]) && v.All(c => char.IsDigit(c) || c is '.' or '-' || char.IsLetter(c)) && v != "0.0.0" ? v : null;
     }
 
     private bool TryCreate(ModuleManifest manifest, out ModuleEntry entry)

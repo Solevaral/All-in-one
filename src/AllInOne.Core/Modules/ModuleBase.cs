@@ -54,6 +54,28 @@ public abstract class ModuleBase(ModuleContext context) : IModule
 
     public virtual object? CreateView() => null;
 
+    /// <summary>
+    /// Файл, по которому видно, что программа лежит в своей папке modules\&lt;папка&gt; (путь внутри неё).
+    /// По нему All in One подхватывает программу, распакованную вручную. null — не подхватывать.
+    /// </summary>
+    public virtual string? ProgramMarker => Context.Manifest.Run?.Exe;
+
+    /// <summary>Версия программы по её файлам (для подхваченной вручную). null — неизвестна.</summary>
+    public virtual string? ReadProgramVersion()
+    {
+        if (this is IModuleInstallHooks hooks && hooks.ReadPayloadVersion() is { Length: > 0 } fromHooks) return fromHooks;
+        if (ProgramMarker is not { } marker) return null;
+        var path = Context.Resolve(marker);
+        try
+        {
+            return File.Exists(path) ? System.Diagnostics.FileVersionInfo.GetVersionInfo(path).ProductVersion : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     public virtual ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     /// <summary>

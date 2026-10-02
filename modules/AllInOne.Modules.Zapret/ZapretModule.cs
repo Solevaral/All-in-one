@@ -432,5 +432,8 @@ public sealed class ZapretModule : ModuleBase, IModuleInstallHooks
 
     public string? ReadPayloadVersion() => Files.ReadVersion();
 
+    /// <summary>У zapret нет run.exe в манифесте: программа узнаётся по winws.exe.</summary>
+    public override string? ProgramMarker => @"bin\winws.exe";
+
     public override object? CreateView() => new ZapretView(this);
 }

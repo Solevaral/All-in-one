@@ -171,3 +171,18 @@ public class ManifestValidationTests
         Assert.All(catalog.Modules, m => Assert.Null(m.Validate()));
     }
 }
+
+public class ManualInstallVersionTests
+{
+    [Theory]
+    [InlineData("1.3.1+a751dab", "1.3.1")]
+    [InlineData("1.2.4", "1.2.4")]
+    [InlineData("v1.10.4", "1.10.4")]
+    [InlineData("1.1.2.0", "1.1.2")]
+    [InlineData("0.0.0", null)]
+    [InlineData("", null)]
+    [InlineData(null, null)]
+    [InlineData("unknown", null)]
+    public void CleansExeVersion(string? raw, string? expected) =>
+        Assert.Equal(expected, AllInOne.Core.Modules.ModuleManager.CleanVersion(raw));
+}
