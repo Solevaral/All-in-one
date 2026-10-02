@@ -16,6 +16,7 @@ internal sealed class ZapretView : UserControl
     private readonly ContentControl _conflictCard = new();
     private readonly ContentControl _strategyCard = new();
     private readonly ContentControl _gameCard = new();
+    private readonly ContentControl _gamesCard = new();
     private readonly ContentControl _ipsetCard = new();
     private readonly ContentControl _listsCard = new();
     private readonly ContentControl _fakesCard = new();
@@ -31,6 +32,7 @@ internal sealed class ZapretView : UserControl
         body.Children.Add(_conflictCard);
         body.Children.Add(_restartBanner);
         body.Children.Add(_strategyCard);
+        body.Children.Add(_gamesCard);
         body.Children.Add(_gameCard);
         body.Children.Add(_ipsetCard);
         body.Children.Add(_listsCard);
@@ -77,6 +79,7 @@ internal sealed class ZapretView : UserControl
         BuildRestartBanner();
         BuildConflict();
         BuildStrategy();
+        BuildGames();
         BuildGameFilter();
         BuildIpset();
         BuildLists();
@@ -176,6 +179,58 @@ internal sealed class ZapretView : UserControl
             UiKit.Button("Папка zapret", () => UiKit.OpenFolder(_module.Files.Root))));
 
         _strategyCard.Content = UiKit.Card(panel);
+    }
+
+    // ---------- фиксы для игр ----------
+
+    private bool _gamesRefreshed;
+
+    private void BuildGames()
+    {
+        var games = _module.Games;
+        var panel = new StackPanel();
+        panel.Children.Add(UiKit.Section("Игры"));
+        panel.Children.Add(UiKit.Hint(
+            "Галочка выставляет Game Filter и IPSet и дописывает строки в «Мои списки»; снятие убирает только добавленное ею. " +
+            "Работа игры не гарантирована: блокировки различаются у провайдеров и меняются. " +
+            "Рассчитано на стандартные настройки VPN-клиента: TryToCatchMe в режиме системного прокси, без TUN. " +
+            "В режиме TUN игровой трафик идёт через VPN, и фиксы могут не сработать."));
+
+        foreach (var game in games.Games)
+        {
+            var id = game.Id;
+            panel.Children.Add(UiKit.Toggle(game.Name, games.State.Enabled.Contains(id), on =>
+            {
+                try
+                {
+                    games.Set(_module.Files, id, on);
+                    Changed();
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or System.IO.IOException or UnauthorizedAccessException)
+                {
+                    _ = Dialog.AlertAsync("Игры", ex.Message);
+                }
+                BuildGames();
+                BuildGameFilter();
+                BuildIpset();
+                BuildLists();
+            }, game.Note));
+        }
+
+        _gamesCard.Content = UiKit.Card(panel);
+
+        // Набор обновляется с GitHub без выпуска All in One: раз за открытие страницы, не чаще раза в 6 часов.
+        if (!_gamesRefreshed)
+        {
+            _gamesRefreshed = true;
+            _ = RefreshGamesAsync();
+        }
+    }
+
+    private async Task RefreshGamesAsync()
+    {
+        if (await _module.Games.RefreshAsync(_module.Http, force: false, CancellationToken.None))
+            await Dispatcher.InvokeAsync(BuildGames);
     }
 
     // ---------- Game Filter ----------

@@ -8,7 +8,7 @@
 
 | Модуль | Что делает | Источник |
 |---|---|---|
-| **zapret** | Обход блокировок Discord и YouTube: стратегии, служба Windows, Game Filter, IPSet, свои списки, диагностика, тесты | [Flowseal/zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube) |
+| **zapret** | Обход блокировок Discord и YouTube: стратегии, служба Windows, Game Filter, IPSet, свои списки, фиксы для игр, диагностика, тесты | [Flowseal/zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube) |
 | **TG WS Proxy** | Локальный MTProto-прокси для Telegram | [Flowseal/tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy) |
 | **TryToCatchMe** | VPN-клиент на sing-box | [Solevaral/TryToCatchMe-client](https://github.com/Solevaral/TryToCatchMe-client) |
 | **fDimmer** | Затемнение экрана вместе с системным интерфейсом | [Solevaral/fDimmer](https://github.com/Solevaral/fDimmer) |

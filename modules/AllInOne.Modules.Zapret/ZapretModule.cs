@@ -51,6 +51,24 @@ public sealed class ZapretModule : ModuleBase, IModuleInstallHooks
 
     internal ZapretFiles Files => new(Context.ProgramDir);
 
+    internal System.Net.Http.HttpClient Http => Context.Http;
+
+    private ZapretGames? _games;
+
+    /// <summary>Фиксы для игр (состояние — в data\modules\zapret\games.json).</summary>
+    internal ZapretGames Games
+    {
+        get
+        {
+            if (_games is null)
+            {
+                _games = new ZapretGames(Context.DataDir);
+                _games.LoadState();
+            }
+            return _games;
+        }
+    }
+
     internal ZapretSettings Settings => _settings;
 
     private string SettingsPath => Path.Combine(Context.DataDir, "zapret.json");

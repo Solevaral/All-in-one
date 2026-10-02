@@ -16,4 +16,8 @@
     <InternalsVisibleTo Include="AllInOne.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="zapret-games.json" LogicalName="AllInOne.Modules.Zapret.zapret-games.json" />
+  </ItemGroup>
+
 </Project>
