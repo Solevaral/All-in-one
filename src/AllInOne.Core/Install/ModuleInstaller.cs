@@ -31,7 +31,7 @@ public sealed class ModuleInstaller(GitHubReleasesClient github)
         if (source is null || source.Type == "none" || source.Repo is null) return null;
         if (source.Type != "github") throw new NotSupportedException($"Источник «{source.Type}» не поддерживается.");
 
-        var release = await github.GetLatestAsync(source.Repo, source.Prerelease, ct)
+        var release = await github.GetLatestAsync(source.Repo, source.Prerelease, ct, [source.AssetArm64, source.AssetNet9, source.Asset])
                       ?? throw new GitHubException(GitHubErrorKind.NoReleases, $"В {source.Repo} нет релизов.");
 
         var asset = PickAsset(release, source)

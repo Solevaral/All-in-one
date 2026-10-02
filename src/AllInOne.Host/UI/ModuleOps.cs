@@ -21,6 +21,31 @@ internal static class ModuleOps
     public static Task InstallAsync(ModuleEntry entry) =>
         WithProgressAsync(entry, p => Manager.InstallAsync(entry, p), $"«{entry.Name}» не установился");
 
+    /// <summary>
+    /// GitHub ограничил запросы — предложить «другой способ» (без API). Возвращает true, если пользователь согласился
+    /// и способ включён: тогда операцию стоит повторить.
+    /// </summary>
+    public static async Task<bool> OfferWebFallbackAsync(string what)
+    {
+        if (Manager.GitHub.UseWeb) return false;
+        var go = await Dialog.ConfirmAsync("Лимит запросов GitHub",
+            $"{what}: GitHub ограничил число запросов (60 в час без входа на один IP; при VPN или общем IP провайдера лимит делят все).\n\n" +
+            "Другой способ: версия берётся со страницы релизов, файл — по прямой ссылке, без лимита. " +
+            "Контрольной суммы от GitHub в этом случае нет, проверяется только размер, загрузка идёт по HTTPS. " +
+            "Способ действует до перезапуска All in One.",
+            "Скачать другим способом", "Отмена");
+        if (go)
+        {
+            Manager.GitHub.UseWeb = true;
+            AllInOne.Core.Log.Info("GitHub: включён другой способ скачивания (без API)");
+        }
+        return go;
+    }
+
+    private static bool IsRateLimit(Exception ex) =>
+        ex is AllInOne.Core.GitHub.GitHubException { Kind: AllInOne.Core.GitHub.GitHubErrorKind.RateLimit }
+        || ex.InnerException is AllInOne.Core.GitHub.GitHubException { Kind: AllInOne.Core.GitHub.GitHubErrorKind.RateLimit };
+
     public static async Task UpdateAsync(ModuleEntry entry)
     {
         if (entry.Module.Status.IsActive)
@@ -50,7 +75,24 @@ internal static class ModuleOps
         app.ReportProgress(entry.Id, new InstallProgress("Подготовка…"));
         try
         {
-            await UiKit.RunAsync(() => action(progress), errorTitle);
+            try
+            {
+                await action(progress);
+            }
+            catch (Exception ex) when (IsRateLimit(ex))
+            {
+                app.ReportProgress(entry.Id, null);
+                if (!await OfferWebFallbackAsync(errorTitle)) return;
+                app.ReportProgress(entry.Id, new InstallProgress("Подготовка…"));
+                await UiKit.RunAsync(() => action(progress), errorTitle);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                await UiKit.RunAsync(() => Task.FromException(ex), errorTitle);
+            }
         }
         finally
         {

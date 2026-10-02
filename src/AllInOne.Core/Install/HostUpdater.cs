@@ -19,7 +19,7 @@ public sealed class HostUpdater(GitHubReleasesClient github)
 
     public async Task<ReleaseChoice?> CheckAsync(CancellationToken ct)
     {
-        var release = await github.GetLatestAsync(Repo, includePrerelease: false, ct);
+        var release = await github.GetLatestAsync(Repo, includePrerelease: false, ct, [AssetPattern]);
         if (release is null || !SemVer.IsNewer(release.Version, RuntimeInfo.HostVersionText)) return null;
         var asset = GitHubReleasesClient.FindAsset(release, AssetPattern);
         return asset is null ? null : new ReleaseChoice(release, asset);

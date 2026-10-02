@@ -42,6 +42,9 @@ internal sealed class UpdatesPage : PageBase
                     {
                         new TextBlock { Text = "Источник обновлений недоступен", Foreground = UiKit.Brush("Warn"), FontWeight = FontWeights.SemiBold },
                         UiKit.Hint(sourceError.Message),
+                        sourceError.Kind == AllInOne.Core.GitHub.GitHubErrorKind.RateLimit && !Manager.GitHub.UseWeb
+                            ? UiKit.Buttons(UiKit.AccentButton("Проверить другим способом", () => _ = CheckViaWebAsync()))
+                            : new StackPanel(),
                     },
                 },
             });
@@ -121,6 +124,12 @@ internal sealed class UpdatesPage : PageBase
             _checking = false;
             Refresh();
         }
+    }
+
+    /// <summary>Лимит API — проверка без него (версия со страницы релизов), после согласия пользователя.</summary>
+    private async Task CheckViaWebAsync()
+    {
+        if (await ModuleOps.OfferWebFallbackAsync("Проверка обновлений")) await CheckAsync();
     }
 
     private static async Task UpdateAllAsync(List<ModuleEntry> entries)

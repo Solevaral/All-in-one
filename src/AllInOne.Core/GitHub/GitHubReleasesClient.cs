@@ -17,11 +17,23 @@ public sealed class GitHubReleasesClient
     private readonly Lock _cacheGate = new();
     private Dictionary<string, CacheEntry> _cache;
 
+    private readonly HttpClient _noRedirect;
+
     public GitHubReleasesClient(HttpClient http)
     {
         _http = http;
         _cache = JsonFile.Read<Dictionary<string, CacheEntry>>(AppPaths.GitHubCacheFile) ?? [];
+        // Для «другого способа»: адрес последнего релиза читается из переадресации, не следуя ей.
+        _noRedirect = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(20) };
+        _noRedirect.DefaultRequestHeaders.UserAgent.ParseAdd($"AllInOne/{RuntimeInfo.HostVersionText}");
     }
+
+    /// <summary>
+    /// «Скачать другим способом» (после лимита API): версия — по переадресации github.com/&lt;репо&gt;/releases/latest,
+    /// файлы — по прямым ссылкам релиза. Ни то, ни другое не входит в лимит 60 запросов в час.
+    /// Контрольной суммы от GitHub при этом нет — остаётся HTTPS. Включается пользователем до перезапуска.
+    /// </summary>
+    public bool UseWeb { get; set; }
 
     /// <summary>
     /// Последняя ошибка обращения к GitHub, даже если ответ удалось взять из кэша.
@@ -29,8 +41,13 @@ public sealed class GitHubReleasesClient
     /// </summary>
     public GitHubException? LastError { get; private set; }
 
-    public async Task<GitHubRelease?> GetLatestAsync(string repo, bool includePrerelease, CancellationToken ct)
+    /// <param name="assetPatterns">Шаблоны файлов: в режиме <see cref="UseWeb"/> список файлов релиза
+    /// неизвестен, и проверяются только файлы с этими именами.</param>
+    public async Task<GitHubRelease?> GetLatestAsync(string repo, bool includePrerelease, CancellationToken ct,
+        IEnumerable<string?>? assetPatterns = null)
     {
+        if (UseWeb) return await GetLatestViaWebAsync(repo, assetPatterns ?? [], ct);
+
         if (!includePrerelease)
         {
             return await GetJsonAsync<GitHubRelease>($"https://api.github.com/repos/{repo}/releases/latest", ct);
@@ -91,6 +108,64 @@ public sealed class GitHubReleasesClient
 
         LastError = null;
         return JsonSerializer.Deserialize<T>(body, GitHubJson.Options);
+    }
+
+    private async Task<GitHubRelease?> GetLatestViaWebAsync(string repo, IEnumerable<string?> patterns, CancellationToken ct)
+    {
+        string tag;
+        try
+        {
+            using var response = await _noRedirect.GetAsync($"https://github.com/{repo}/releases/latest", HttpCompletionOption.ResponseHeadersRead, ct);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+                throw Remember(new GitHubException(GitHubErrorKind.NotFound, $"Не найдено на GitHub: {repo}. Репозиторий удалён, переименован или стал приватным."));
+            var location = response.Headers.Location?.ToString() ?? "";
+            const string marker = "/releases/tag/";
+            var i = location.IndexOf(marker, StringComparison.Ordinal);
+            if (i < 0)
+            {
+                if ((int)response.StatusCode is >= 300 and < 400) return null;   // переадресация на список релизов — релизов нет
+                throw Remember(FromStatus(response.StatusCode, $"https://github.com/{repo}"));
+            }
+            tag = Uri.UnescapeDataString(location[(i + marker.Length)..].Split('?', '#')[0]);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            throw Remember(Network(ex, "github.com"));
+        }
+
+        var release = new GitHubRelease { TagName = tag, HtmlUrl = $"https://github.com/{repo}/releases/tag/{Uri.EscapeDataString(tag)}" };
+        var versions = new[] { SemVer.Normalize(tag), tag }.Distinct().ToList();
+        foreach (var pattern in patterns.Where(p => !string.IsNullOrWhiteSpace(p)).Distinct())
+        {
+            foreach (var version in versions)
+            {
+                var name = pattern!.Replace("*", version);
+                if (release.Assets.Any(a => a.Name == name)) break;
+                var url = $"https://github.com/{repo}/releases/download/{Uri.EscapeDataString(tag)}/{Uri.EscapeDataString(name)}";
+                if (await ProbeAsync(url, ct) is { } size)
+                {
+                    release.Assets.Add(new GitHubAsset { Name = name, Size = size, BrowserDownloadUrl = url });
+                    break;
+                }
+            }
+        }
+        LastError = null;
+        return release;
+    }
+
+    /// <summary>Есть ли файл по прямой ссылке релиза; размер — если сервер его сообщил (иначе 0).</summary>
+    private async Task<long?> ProbeAsync(string url, CancellationToken ct)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Head, url);
+            using var response = await _http.SendAsync(request, ct);
+            return response.IsSuccessStatusCode ? response.Content.Headers.ContentLength ?? 0 : null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            throw Remember(Network(ex, "github.com"));
+        }
     }
 
     /// <summary>Скачивает ассет в файл и сверяет размер и sha256 (если GitHub его отдал).</summary>
@@ -186,7 +261,7 @@ public sealed class GitHubReleasesClient
         HttpStatusCode.NotFound => new GitHubException(GitHubErrorKind.NotFound,
             $"Не найдено на GitHub: {RepoOf(url)}. Репозиторий удалён, переименован или стал приватным."),
         HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests => new GitHubException(GitHubErrorKind.RateLimit,
-            "GitHub ограничил число запросов (60 в час без входа). Повторите позже."),
+            "GitHub ограничил число запросов (60 в час без входа). Повторите позже или скачайте другим способом."),
         HttpStatusCode.UnavailableForLegalReasons => new GitHubException(GitHubErrorKind.Blocked,
             $"GitHub закрыл доступ к {RepoOf(url)}."),
         _ => new GitHubException(GitHubErrorKind.Server, $"GitHub ответил ошибкой {(int)status}."),
