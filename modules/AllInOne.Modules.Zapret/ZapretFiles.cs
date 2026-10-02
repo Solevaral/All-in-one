@@ -53,18 +53,24 @@ public sealed partial class ZapretFiles(string root)
     private string IpsetFile => Path.Combine(Lists, "ipset-all.txt");
     private string IpsetBackup => Path.Combine(Lists, "ipset-all.txt.backup");
 
-    public bool Exists => File.Exists(WinwsExe);
+    public bool Exists => SafeFile.Exists(WinwsExe);
 
     // ---------- версия ----------
 
     /// <summary>set "LOCAL_VERSION=1.10.3" во второй строке service.bat.</summary>
     public string? ReadVersion()
     {
-        if (!File.Exists(ServiceBat)) return null;
-        foreach (var line in File.ReadLines(ServiceBat).Take(20))
+        // Версия — только для показа: недоступный service.bat не ошибка.
+        try
         {
-            var m = LocalVersion().Match(line);
-            if (m.Success) return m.Groups[1].Value;
+            foreach (var line in (SafeFile.ReadLines(ServiceBat) ?? []).Take(20))
+            {
+                var m = LocalVersion().Match(line);
+                if (m.Success) return m.Groups[1].Value;
+            }
+        }
+        catch (ZapretFileException)
+        {
         }
         return null;
     }
@@ -73,8 +79,7 @@ public sealed partial class ZapretFiles(string root)
 
     public IReadOnlyList<string> Strategies()
     {
-        if (!Directory.Exists(Root)) return [];
-        var names = Directory.EnumerateFiles(Root, "*.bat")
+        var names = SafeFile.List(Root, "*.bat")
             .Select(Path.GetFileNameWithoutExtension)
             .OfType<string>()
             .Where(n => !n.StartsWith("service", StringComparison.OrdinalIgnoreCase));
@@ -101,18 +106,18 @@ public sealed partial class ZapretFiles(string root)
 
     public void EnsureUserLists()
     {
-        Directory.CreateDirectory(Lists);
         foreach (var (name, content) in UserListDefaults)
         {
             var path = Path.Combine(Lists, name);
-            if (!File.Exists(path)) File.WriteAllText(path, content);
+            if (!SafeFile.Exists(path)) SafeFile.WriteText(path, content);
         }
     }
 
     public string ReadUserList(string name)
     {
-        var path = Path.Combine(Lists, name);
-        return File.Exists(path) ? File.ReadAllText(path) : UserListDefaults[name];
+        // Нет файла — значения по умолчанию; файл есть, но не читается — ошибка, а не пустой список
+        // (иначе следующая запись затёрла бы содержимое).
+        return SafeFile.ReadText(Path.Combine(Lists, name)) ?? UserListDefaults[name];
     }
 
     /// <summary>Сохраняет список с CRLF. Пустым файл оставлять нельзя — winws перестанет его понимать.</summary>
@@ -120,7 +125,7 @@ public sealed partial class ZapretFiles(string root)
     {
         var lines = text.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
         var content = lines.Count == 0 ? UserListDefaults[name] : string.Join("\r\n", lines) + "\r\n";
-        File.WriteAllText(Path.Combine(Lists, name), content);
+        SafeFile.WriteText(Path.Combine(Lists, name), content);
     }
 
     // ---------- Game Filter (utils\game_filter.enabled) ----------
@@ -129,9 +134,9 @@ public sealed partial class ZapretFiles(string root)
     {
         var mode = GameFilterMode.Disabled;
         string? tcp = null, udp = null;
-        if (File.Exists(GameFilterFile))
+        if (SafeFile.ReadLines(GameFilterFile) is { } fileLines)
         {
-            foreach (var raw in File.ReadAllLines(GameFilterFile))
+            foreach (var raw in fileLines)
             {
                 var parts = raw.Split('=', 2);
                 var key = parts[0].Trim().ToLowerInvariant();
@@ -154,8 +159,7 @@ public sealed partial class ZapretFiles(string root)
 
     public void WriteGameFilter(GameFilter filter)
     {
-        Directory.CreateDirectory(Utils);
-        File.WriteAllText(GameFilterFile,
+        SafeFile.WriteText(GameFilterFile,
             $"mode={filter.Mode.ToString().ToLowerInvariant()}\r\ntcp={filter.TcpRange}\r\nudp={filter.UdpRange}\r\n");
     }
 
@@ -190,13 +194,12 @@ public sealed partial class ZapretFiles(string root)
 
     public IpsetMode ReadIpsetMode()
     {
-        if (!File.Exists(IpsetFile)) return IpsetMode.Any;
-        var lines = File.ReadAllLines(IpsetFile);
-        if (lines.Length == 0) return IpsetMode.Any;
+        var lines = SafeFile.ReadLines(IpsetFile);
+        if (lines is null || lines.Length == 0) return IpsetMode.Any;
         return lines.Any(l => l.Contains(IpsetDummy, StringComparison.Ordinal)) ? IpsetMode.None : IpsetMode.Loaded;
     }
 
-    public bool HasIpsetBackup => File.Exists(IpsetBackup);
+    public bool HasIpsetBackup => SafeFile.Exists(IpsetBackup);
 
     /// <summary>Переключение режима с теми же файлами, что у service.bat (загруженный список хранится в .backup).</summary>
     public void SetIpsetMode(IpsetMode target)
@@ -204,20 +207,20 @@ public sealed partial class ZapretFiles(string root)
         var current = ReadIpsetMode();
         if (current == target) return;
 
-        if (current == IpsetMode.Loaded) File.Move(IpsetFile, IpsetBackup, overwrite: true);
+        if (target == IpsetMode.Loaded && !HasIpsetBackup)
+            throw new InvalidOperationException("Загруженного списка нет — сначала нажмите «Обновить список IPSet».");
+        if (current == IpsetMode.Loaded) SafeFile.Move(IpsetFile, IpsetBackup);
 
         switch (target)
         {
             case IpsetMode.None:
-                File.WriteAllText(IpsetFile, IpsetDummy + "\r\n");
+                SafeFile.WriteText(IpsetFile, IpsetDummy + "\r\n");
                 break;
             case IpsetMode.Any:
-                File.WriteAllText(IpsetFile, "");
+                SafeFile.WriteText(IpsetFile, "");
                 break;
             case IpsetMode.Loaded:
-                if (!File.Exists(IpsetBackup))
-                    throw new InvalidOperationException("Загруженного списка нет — сначала нажмите «Обновить список IPSet».");
-                File.Move(IpsetBackup, IpsetFile, overwrite: true);
+                SafeFile.Move(IpsetBackup, IpsetFile);
                 break;
         }
     }
@@ -230,7 +233,8 @@ public sealed partial class ZapretFiles(string root)
         var text = await http.GetStringAsync(IpsetUrl, ct);
         if (text.Split('\n').Count(l => l.Trim().Length > 0) < 10)
             throw new InvalidDataException("Скачанный список IPSet подозрительно короткий — не применён.");
-        await File.WriteAllTextAsync(IpsetFile, text.Replace("\r\n", "\n").Replace("\n", "\r\n"), ct);
+        ct.ThrowIfCancellationRequested();
+        SafeFile.WriteText(IpsetFile, text.Replace("\r\n", "\n").Replace("\n", "\r\n"));
     }
 
     // ---------- активные фейки (bin\ACTIVE_*.bin) ----------
@@ -239,24 +243,22 @@ public sealed partial class ZapretFiles(string root)
 
     /// <summary>Файлы, которые можно подставить вместо активного фейка.</summary>
     public IReadOnlyList<string> FakeCandidates() =>
-        Directory.Exists(Bin)
-            ? Directory.EnumerateFiles(Bin, "*.bin").Select(Path.GetFileName).OfType<string>()
-                .Where(n => !n.StartsWith("ACTIVE_", StringComparison.OrdinalIgnoreCase)).Order().ToList()
-            : [];
+        SafeFile.List(Bin, "*.bin").Select(Path.GetFileName).OfType<string>()
+            .Where(n => !n.StartsWith("ACTIVE_", StringComparison.OrdinalIgnoreCase)).Order().ToList();
 
     /// <summary>Какой файл сейчас скопирован в активный фейк (по sha256), или null.</summary>
     public string? CurrentFake(string activeName)
     {
         var active = Path.Combine(Bin, activeName);
-        if (!File.Exists(active)) return null;
+        if (!SafeFile.Exists(active)) return null;
         var hash = Hash(active);
         return FakeCandidates().FirstOrDefault(c => Hash(Path.Combine(Bin, c)) == hash);
     }
 
     public void SetFake(string activeName, string candidate) =>
-        File.Copy(Path.Combine(Bin, candidate), Path.Combine(Bin, activeName), overwrite: true);
+        SafeFile.Copy(Path.Combine(Bin, candidate), Path.Combine(Bin, activeName));
 
-    private static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
+    private static string Hash(string path) => Convert.ToHexString(SHA256.HashData(SafeFile.ReadBytes(path)));
 
     [GeneratedRegex(@"LOCAL_VERSION=([0-9][0-9A-Za-z.\-]*)")]
     private static partial Regex LocalVersion();

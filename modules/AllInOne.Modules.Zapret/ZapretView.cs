@@ -118,7 +118,7 @@ internal sealed class ZapretView : UserControl
 
     // ---------- стратегия и режим ----------
 
-    private void BuildStrategy()
+    private void BuildStrategyCore()
     {
         var strategies = _module.Files.Strategies();
         var current = _module.CurrentStrategy;
@@ -181,19 +181,54 @@ internal sealed class ZapretView : UserControl
         _strategyCard.Content = UiKit.Card(panel);
     }
 
+    // ---------- ошибки файлов ----------
+
+    private void BuildStrategy() => SafeCard(_strategyCard, "Стратегия", BuildStrategyCore);
+
+    private void BuildGames() => SafeCard(_gamesCard, "Игры", BuildGamesCore);
+
+    private void BuildGameFilter() => SafeCard(_gameCard, "Game Filter", BuildGameFilterCore);
+
+    private void BuildIpset() => SafeCard(_ipsetCard, "IPSet", BuildIpsetCore);
+
+    private void BuildLists() => SafeCard(_listsCard, "Мои списки", BuildListsCore);
+
+    private void BuildFakes() => SafeCard(_fakesCard, "Фейки", BuildFakesCore);
+
+    private void BuildDiagnostics() => SafeCard(_diagCard, "Диагностика", BuildDiagnosticsCore);
+
+    /// <summary>
+    /// Строит карточку; если файлы zapret не читаются (нет файла, нет доступа, занят антивирусом),
+    /// вместо карточки — текст ошибки и «Повторить», остальная страница работает.
+    /// </summary>
+    private static void SafeCard(ContentControl target, string title, Action build)
+    {
+        try
+        {
+            build();
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or InvalidOperationException or System.IO.InvalidDataException)
+        {
+            target.Content = UiKit.Card(
+                UiKit.Section(title),
+                UiKit.Text(ex.Message).With(t => t.Foreground = UiKit.Brush("Bad")),
+                UiKit.Buttons(UiKit.Button("Повторить", () => SafeCard(target, title, build))));
+        }
+    }
+
     // ---------- фиксы для игр ----------
 
     private bool _gamesRefreshed;
 
     /// <summary>
     /// Карточка «Игры»: только включённые фиксы плашками; весь список — в окне выбора с поиском,
-    /// чтобы страница не росла вместе с набором игр.
+    /// чтобы страница не росла вместе с набором игр. Фикс, прописанный вручную, тоже считается включённым.
     /// </summary>
-    private void BuildGames()
+    private void BuildGamesCore()
     {
         var games = _module.Games;
-        var all = games.Games;
-        var enabled = all.Where(g => games.State.Enabled.Contains(g.Id)).ToList();
+        var now = ZapretGames.Read(_module.Files);
+        var enabled = games.Games.Where(g => games.IsOn(now, g)).ToList();
 
         var panel = new StackPanel();
         panel.Children.Add(UiKit.Section("Игры"));
@@ -210,7 +245,7 @@ internal sealed class ZapretView : UserControl
         {
             var chips = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
             foreach (var game in enabled)
-                chips.Children.Add(GameChip(game));
+                chips.Children.Add(GameChip(game, games.IsManual(now, game)));
             panel.Children.Add(chips);
         }
 
@@ -233,11 +268,14 @@ internal sealed class ZapretView : UserControl
     }
 
     /// <summary>Плашка включённой игры с кнопкой выключения.</summary>
-    private FrameworkElement GameChip(GameFix game)
+    private FrameworkElement GameChip(GameFix game, bool manual)
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal };
         row.Children.Add(new TextBlock { Text = game.Name, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.Brush("Text") });
-        var remove = UiKit.Link("✕", () => SetGame(game.Id, false));
+        if (manual)
+            row.Children.Add(new TextBlock { Text = " · вручную", VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.Brush("SubText") });
+        row.Children.Add(HelpButton(game));
+        var remove = UiKit.Link("✕", () => _ = SetGameAsync(game, false));
         remove.Margin = new Thickness(8, 0, 0, 0);
         remove.ToolTip = "Выключить фикс";
         row.Children.Add(remove);
@@ -254,21 +292,73 @@ internal sealed class ZapretView : UserControl
         };
     }
 
-    private void SetGame(string id, bool on)
+    /// <summary>Кружок «?»: что включает фикс и что сделать самому.</summary>
+    private static FrameworkElement HelpButton(GameFix game)
+    {
+        var mark = new TextBlock
+        {
+            Text = "?",
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = UiKit.Brush("SubText"),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var circle = new Border
+        {
+            Width = 16,
+            Height = 16,
+            CornerRadius = new CornerRadius(8),
+            BorderBrush = UiKit.Brush("SubText"),
+            BorderThickness = new Thickness(1),
+            Background = System.Windows.Media.Brushes.Transparent,
+            Margin = new Thickness(8, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Cursor = System.Windows.Input.Cursors.Hand,
+            ToolTip = "Справка",
+            Child = mark,
+        };
+        circle.MouseEnter += (_, _) => { circle.BorderBrush = UiKit.Brush("Accent"); mark.Foreground = UiKit.Brush("Accent"); };
+        circle.MouseLeave += (_, _) => { circle.BorderBrush = UiKit.Brush("SubText"); mark.Foreground = UiKit.Brush("SubText"); };
+        circle.MouseLeftButtonUp += (_, e) =>
+        {
+            e.Handled = true;
+            _ = Dialog.AlertAsync(game.Name, ZapretGames.Describe(game));
+        };
+        return circle;
+    }
+
+    /// <summary>Включает или выключает фикс. Прописанный вручную — только после подтверждения.</summary>
+    private async Task SetGameAsync(GameFix game, bool on)
     {
         try
         {
-            _module.Games.Set(_module.Files, id, on);
+            var games = _module.Games;
+            if (!on && games.IsManual(ZapretGames.Read(_module.Files), game))
+            {
+                var remove = await Dialog.ConfirmAsync(game.Name,
+                    "Строки и режимы этого фикса прописаны вручную. Убрать их? Game Filter и IPSet станут «выключен», если их не требуют другие фиксы.",
+                    "Убрать", "Оставить");
+                if (!remove) return;
+                games.RemoveManual(_module.Files, game);
+            }
+            else
+            {
+                games.Set(_module.Files, game.Id, on);
+            }
             Changed();
         }
         catch (Exception ex) when (ex is InvalidOperationException or System.IO.IOException or UnauthorizedAccessException)
         {
-            _ = Dialog.AlertAsync("Игры", ex.Message);
+            await Dialog.AlertAsync("Игры", ex.Message);
         }
-        BuildGames();
-        BuildGameFilter();
-        BuildIpset();
-        BuildLists();
+        finally
+        {
+            BuildGames();
+            BuildGameFilter();
+            BuildIpset();
+            BuildLists();
+        }
     }
 
     /// <summary>Окно выбора: поиск и переключатель у каждой игры; изменения применяются сразу.</summary>
@@ -282,16 +372,26 @@ internal sealed class ZapretView : UserControl
         void Fill()
         {
             list.Children.Clear();
+            ZapretGames.Snapshot now;
+            try
+            {
+                now = ZapretGames.Read(_module.Files);
+            }
+            catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+            {
+                list.Children.Add(UiKit.Text(ex.Message).With(t => t.Foreground = UiKit.Brush("Bad")));
+                return;
+            }
             var needle = search.Text.Trim();
             var shown = games.Games
                 .Where(g => needle.Length == 0 || g.Name.Contains(needle, StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(g => games.State.Enabled.Contains(g.Id))
+                .OrderByDescending(g => games.IsOn(now, g))
                 .ThenBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase)
                 .ToList();
             foreach (var game in shown)
             {
-                var id = game.Id;
-                list.Children.Add(UiKit.Toggle(game.Name, games.State.Enabled.Contains(id), on => SetGame(id, on), game.Note));
+                var hint = games.IsManual(now, game) ? $"{game.Note} Прописано вручную.".Trim() : game.Note;
+                list.Children.Add(UiKit.Toggle(game.Name, games.IsOn(now, game), on => _ = ToggleInDialogAsync(game, on, Fill), hint));
             }
             if (shown.Count == 0) list.Children.Add(UiKit.Hint("Ничего не найдено."));
         }
@@ -305,6 +405,12 @@ internal sealed class ZapretView : UserControl
         await Dialog.ShowAsync("Игры", "Поиск по названию. Фикс включается и выключается сразу.", extra, "Готово");
     }
 
+    private async Task ToggleInDialogAsync(GameFix game, bool on, Action refill)
+    {
+        await SetGameAsync(game, on);
+        refill();   // отказ убрать ручной фикс или ошибка — переключатель возвращается к фактическому состоянию
+    }
+
     private async Task RefreshGamesAsync()
     {
         if (await _module.Games.RefreshAsync(_module.Http, force: false, CancellationToken.None))
@@ -313,7 +419,7 @@ internal sealed class ZapretView : UserControl
 
     // ---------- Game Filter ----------
 
-    private void BuildGameFilter()
+    private void BuildGameFilterCore()
     {
         var gf = _module.Files.ReadGameFilter();
         var mode = gf.Mode;
@@ -347,7 +453,7 @@ internal sealed class ZapretView : UserControl
 
     // ---------- IPSet ----------
 
-    private void BuildIpset()
+    private void BuildIpsetCore()
     {
         var files = _module.Files;
         var current = files.ReadIpsetMode();
@@ -392,7 +498,7 @@ internal sealed class ZapretView : UserControl
 
     // ---------- свои списки ----------
 
-    private void BuildLists()
+    private void BuildListsCore()
     {
         var files = _module.Files;
         var lists = new[]
@@ -433,7 +539,7 @@ internal sealed class ZapretView : UserControl
 
     // ---------- фейки ----------
 
-    private void BuildFakes()
+    private void BuildFakesCore()
     {
         var files = _module.Files;
         var candidates = files.FakeCandidates();
@@ -457,7 +563,7 @@ internal sealed class ZapretView : UserControl
 
     // ---------- диагностика ----------
 
-    private void BuildDiagnostics()
+    private void BuildDiagnosticsCore()
     {
         var panel = new StackPanel();
         panel.Children.Add(UiKit.Section("Диагностика"));

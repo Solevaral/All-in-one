@@ -89,4 +89,64 @@ public sealed class ZapretGamesTests : IDisposable
 
     [Fact]
     public void RejectsUnknownSchema() => Assert.Null(ZapretGames.Parse("""{"schema":2,"games":[]}"""));
+
+    [Fact]
+    public void ManualSetupIsDetectedAndRemovedOnRequest()
+    {
+        _files.EnsureUserLists();
+        _files.WriteUserList(ZapretGames.ListExcludeFile, "my.site\r\nubisoft.com\r\nubi.com\r\nuplay.com\r\nubisoftconnect.com\r\nubistatic.com");
+        _files.WriteGameFilter(_files.ReadGameFilter() with { Mode = GameFilterMode.All });
+        _files.SetIpsetMode(IpsetMode.Any);
+
+        var game = _games.Games.Single(g => g.Id == "ubisoft");
+        var now = ZapretGames.Read(_files);
+        Assert.True(_games.IsOn(now, game));
+        Assert.True(_games.IsManual(now, game));
+
+        _games.RemoveManual(_files, game);
+        var lines = Lines(ZapretGames.ListExcludeFile);
+        Assert.Contains("my.site", lines);
+        Assert.DoesNotContain("ubisoft.com", lines);
+        Assert.Equal(GameFilterMode.Disabled, _files.ReadGameFilter().Mode);
+        Assert.Equal(IpsetMode.None, _files.ReadIpsetMode());
+        Assert.False(_games.IsOn(ZapretGames.Read(_files), game));
+    }
+
+    [Fact]
+    public void PartialManualSetupIsNotOn()
+    {
+        _files.EnsureUserLists();
+        _files.WriteUserList(ZapretGames.ListExcludeFile, "ubisoft.com");
+        var game = _games.Games.Single(g => g.Id == "ubisoft");
+        Assert.False(_games.IsOn(ZapretGames.Read(_files), game));
+    }
+
+    [Fact]
+    public void HelpListsWhatTheFixSets()
+    {
+        var text = ZapretGames.Describe(_games.Games.Single(g => g.Id == "ubisoft"));
+        Assert.Contains("Game Filter — TCP и UDP", text);
+        Assert.Contains("ubisoft.com", text);
+        Assert.Contains("TUN", text);
+    }
+
+    [Fact]
+    public void ReadOnlyListIsStillWritten()
+    {
+        _files.EnsureUserLists();
+        var path = Path.Combine(_files.Lists, ZapretGames.ListGeneralFile);
+        File.SetAttributes(path, FileAttributes.ReadOnly);
+        _games.Set(_files, "factorio", true);
+        Assert.Contains("factorio.com", Lines(ZapretGames.ListGeneralFile));
+    }
+
+    [Fact]
+    public void LockedListGivesClearError()
+    {
+        _files.EnsureUserLists();
+        var path = Path.Combine(_files.Lists, ZapretGames.ListGeneralFile);
+        using var lockIt = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+        var ex = Assert.Throws<ZapretFileException>(() => _games.Set(_files, "factorio", true));
+        Assert.Contains("занят другой программой", ex.Message);
+    }
 }

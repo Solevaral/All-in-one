@@ -8,7 +8,7 @@
     <PlatformTarget>x64</PlatformTarget>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <SatelliteResourceLanguages>ru</SatelliteResourceLanguages>
-    <Version>0.2.7</Version>
+    <Version>0.2.8</Version>
     <Authors>Solevaral</Authors>
     <Product>All in One</Product>
     <!-- P/Invoke объявлен через DllImport намеренно, как в fDimmer и magniF. -->

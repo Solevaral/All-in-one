@@ -13,7 +13,8 @@
         "uplay.com",
         "ubisoftconnect.com",
         "ubistatic.com"
-      ]
+      ],
+      "help": "TryToCatchMe переключите из режима TUN в режим системного прокси: через TUN игра подключается, но не пускает в матчи. Если матч всё равно не находится — смените стратегию zapret."
     },
     {
       "id": "factorio",
