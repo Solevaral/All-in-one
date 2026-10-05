@@ -23,6 +23,14 @@
       "listGeneral": [
         "factorio.com"
       ]
+    },
+    {
+      "id": "elite",
+      "name": "Elite Dangerous",
+      "note": "В лаунчере или игре: «Соединение с серверами Frontier невозможно», бесконечная загрузка.",
+      "gameFilter": "udp",
+      "ipset": "any",
+      "help": "Серверы Frontier стоят в Amazon AWS, часть адресов которого заблокирована. Если игра всё равно не подключается — смените стратегию zapret."
     }
   ]
 }
