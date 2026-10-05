@@ -25,6 +25,9 @@ internal sealed class ZapretView : UserControl
     private bool _diagRunning;
     private bool _pendingRestart;
 
+    /// <summary>Меняли стратегию или Game Filter, а сравнить с запущенным winws нельзя.</summary>
+    private bool _argsTouched;
+
     public ZapretView(ZapretModule module)
     {
         _module = module;
@@ -47,7 +50,7 @@ internal sealed class ZapretView : UserControl
 
     private void OnStatus(object? sender, ModuleStatus e) => Dispatcher.BeginInvoke(() =>
     {
-        if (!_module.Status.IsActive) _pendingRestart = false;
+        if (!_module.Status.IsActive) _pendingRestart = _argsTouched = false;
         BuildRestartBanner();
         BuildConflict();
     });
@@ -96,9 +99,22 @@ internal sealed class ZapretView : UserControl
         BuildRestartBanner();
     }
 
+    /// <summary>
+    /// Сменили стратегию или Game Filter. Нужен ли перезапуск, решает сравнение с аргументами
+    /// запущенного winws: вернули прежнее значение — баннер пропадает.
+    /// </summary>
+    private void ArgsChanged()
+    {
+        _argsTouched = Running;
+        BuildRestartBanner();
+    }
+
+    private bool NeedsRestart =>
+        Running && (_pendingRestart || (_argsTouched && (_module.RunningArgsDiffer() ?? true)));
+
     private void BuildRestartBanner()
     {
-        _restartBanner.Content = _pendingRestart && Running
+        _restartBanner.Content = NeedsRestart
             ? UiKit.Card(
                 UiKit.Text("Изменения применятся после перезапуска zapret."),
                 UiKit.Buttons(UiKit.AccentButton("Перезапустить сейчас", () => _ = RestartAsync())))
@@ -113,6 +129,7 @@ internal sealed class ZapretView : UserControl
             await _module.StartAsync(CancellationToken.None);
         }, "zapret не перезапустился");
         _pendingRestart = false;
+        _argsTouched = false;
         BuildRestartBanner();
     }
 
@@ -130,7 +147,7 @@ internal sealed class ZapretView : UserControl
         {
             _module.Settings.Strategy = s;
             _module.SaveSettings();
-            Changed();
+            ArgsChanged();
         })));
 
         var modes = new StackPanel { Orientation = Orientation.Horizontal };
@@ -346,7 +363,8 @@ internal sealed class ZapretView : UserControl
             {
                 games.Set(_module.Files, game.Id, on);
             }
-            Changed();
+            // Списки winws перечитывает сам; перезапуск нужен только если сменился Game Filter.
+            ArgsChanged();
         }
         catch (Exception ex) when (ex is InvalidOperationException or System.IO.IOException or UnauthorizedAccessException)
         {
@@ -429,25 +447,47 @@ internal sealed class ZapretView : UserControl
         var panel = new StackPanel();
         panel.Children.Add(UiKit.Section("Game Filter"));
         panel.Children.Add(UiKit.Hint("Обход для игр: обработка портов выше 1024. Нагружает систему, возможны конфликты с античитами."));
-        panel.Children.Add(UiKit.Row("Режим", UiKit.Combo(
-            [(GameFilterMode.Disabled, "выключен"), (GameFilterMode.All, "TCP и UDP"), (GameFilterMode.Tcp, "только TCP"), (GameFilterMode.Udp, "только UDP")],
-            mode, m => mode = m)));
-        panel.Children.Add(UiKit.Row("Порты TCP", tcp));
-        panel.Children.Add(UiKit.Row("Порты UDP", udp));
-        panel.Children.Add(UiKit.Row("", UiKit.Hint("Формат: 1024-65535 или 1024-1934,1936-65535.")));
-        panel.Children.Add(UiKit.Buttons(UiKit.AccentButton("Сохранить", () =>
+        // Режим и порты применяются сразу, без кнопки: запись в файл и предложение перезапустить zapret.
+        void Apply(GameFilter next)
         {
-            var t = ZapretFiles.ValidateRange(tcp.Text);
-            var u = ZapretFiles.ValidateRange(udp.Text);
-            if (t is null || u is null)
+            try
+            {
+                _module.Files.WriteGameFilter(next);
+                ArgsChanged();
+            }
+            catch (System.IO.IOException ex)
+            {
+                _ = Dialog.AlertAsync("Game Filter", ex.Message);
+                BuildGameFilter();
+            }
+        }
+
+        void ApplyPorts(TextBox box, bool isTcp)
+        {
+            var current = _module.Files.ReadGameFilter();
+            var valid = ZapretFiles.ValidateRange(box.Text);
+            if (valid is null)
             {
                 _ = Dialog.AlertAsync("Game Filter", "Неверные порты: числа от 1 до 65535, диапазоны через дефис, разделитель — запятая.");
+                box.Text = isTcp ? current.TcpRange : current.UdpRange;
                 return;
             }
-            _module.Files.WriteGameFilter(new GameFilter(mode, t, u));
-            Changed();
-            BuildGameFilter();
-        })));
+            box.Text = valid;
+            if (valid != (isTcp ? current.TcpRange : current.UdpRange))
+                Apply(isTcp ? current with { TcpRange = valid } : current with { UdpRange = valid });
+        }
+
+        tcp.LostFocus += (_, _) => ApplyPorts(tcp, true);
+        udp.LostFocus += (_, _) => ApplyPorts(udp, false);
+        tcp.KeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Enter) ApplyPorts(tcp, true); };
+        udp.KeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Enter) ApplyPorts(udp, false); };
+
+        panel.Children.Add(UiKit.Row("Режим", UiKit.Combo(
+            [(GameFilterMode.Disabled, "выключен"), (GameFilterMode.All, "TCP и UDP"), (GameFilterMode.Tcp, "только TCP"), (GameFilterMode.Udp, "только UDP")],
+            mode, m => Apply(_module.Files.ReadGameFilter() with { Mode = m }))));
+        panel.Children.Add(UiKit.Row("Порты TCP", tcp));
+        panel.Children.Add(UiKit.Row("Порты UDP", udp));
+        panel.Children.Add(UiKit.Row("", UiKit.Hint("Формат: 1024-65535 или 1024-1934,1936-65535. Порты применяются по Enter или при переходе к другому полю.")));
         _gameCard.Content = UiKit.Card(panel);
     }
 

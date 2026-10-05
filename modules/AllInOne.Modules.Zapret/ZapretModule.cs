@@ -237,6 +237,34 @@ public sealed class ZapretModule : ModuleBase, IModuleInstallHooks
         else if (Status.State is not (ModuleState.Error or ModuleState.Starting)) SetStatus(ModuleStatus.Stopped);
     }
 
+    /// <summary>
+    /// Запущенный winws работает не с теми аргументами, с которыми запустился бы сейчас
+    /// (сменили стратегию или Game Filter). Вернули прежнее — снова false, перезапуск не нужен.
+    /// null — не узнать (zapret не запущен или командная строка недоступна).
+    /// </summary>
+    internal bool? RunningArgsDiffer()
+    {
+        var ours = OurProcesses();
+        try
+        {
+            if (ours.Count == 0 || CurrentStrategy is not { } strategy) return null;
+            if (ProcessUtil.TryGetCommandLine(ours[0].Id) is not { } running) return null;
+            var expected = BatStrategyParser.ToCommandLine(Files.BuildArgs(strategy));
+            return Normalize(TrimExe(running)) != Normalize(expected);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or InvalidDataException)
+        {
+            return null;
+        }
+        finally
+        {
+            foreach (var p in ours) p.Dispose();
+        }
+
+        // Кавычки по-разному расставляют .NET (запуск процессом) и binPath службы — сравниваем без них.
+        static string Normalize(string s) => string.Join(' ', s.Replace("\"", "").Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
     private static string TrimExe(string commandLine)
     {
         var i = commandLine.IndexOf("winws.exe", StringComparison.OrdinalIgnoreCase);
