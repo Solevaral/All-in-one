@@ -87,23 +87,45 @@ internal sealed class ZapretGames(string dataDir)
 
     private void SaveState() => JsonFile.TryWrite(StatePath, State);
 
-    /// <summary>Встроенный набор, поверх — скачанный (записи с тем же id заменяются).</summary>
+    /// <summary>
+    /// Скачанный с GitHub набор целиком (так игру можно и убрать из набора), без него — встроенный.
+    /// </summary>
     public IReadOnlyList<GameFix> Games
     {
         get
         {
-            var list = Parse(ReadBuiltin())?.Games ?? [];
-            if (File.Exists(CachePath) && Parse(File.ReadAllText(CachePath)) is { } cached)
+            try
             {
-                foreach (var game in cached.Games)
-                {
-                    var i = list.FindIndex(g => g.Id == game.Id);
-                    if (i >= 0) list[i] = game;
-                    else list.Add(game);
-                }
+                if (File.Exists(CachePath) && Parse(File.ReadAllText(CachePath)) is { Games.Count: > 0 } cached)
+                    return cached.Games;
             }
-            return list;
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+            }
+            return Parse(ReadBuiltin())?.Games ?? [];
         }
+    }
+
+    /// <summary>
+    /// Включённые фиксы игр, которых больше нет в наборе: выключаются, их строки убираются из списков,
+    /// режимы возвращаются. true — что-то изменилось.
+    /// </summary>
+    public bool Prune(ZapretFiles files)
+    {
+        var known = Games.Select(g => g.Id).ToHashSet();
+        var gone = State.Enabled.Where(id => !known.Contains(id)).ToList();
+        if (gone.Count == 0) return false;
+        State.Enabled.RemoveAll(gone.Contains);
+        try
+        {
+            Apply(files);
+        }
+        finally
+        {
+            SaveState();
+        }
+        Log.Info($"zapret: фиксы {string.Join(", ", gone)} убраны из набора игр и выключены");
+        return true;
     }
 
     /// <summary>Справка для кружка «?»: подпись, что выставляет фикс и что сделать самому.</summary>

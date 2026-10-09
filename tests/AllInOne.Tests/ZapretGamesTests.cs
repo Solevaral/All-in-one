@@ -134,19 +134,35 @@ public sealed class ZapretGamesTests : IDisposable
     public void ReadOnlyListIsStillWritten()
     {
         _files.EnsureUserLists();
-        var path = Path.Combine(_files.Lists, ZapretGames.ListGeneralFile);
+        var path = Path.Combine(_files.Lists, ZapretGames.ListExcludeFile);
         File.SetAttributes(path, FileAttributes.ReadOnly);
-        _games.Set(_files, "factorio", true);
-        Assert.Contains("factorio.com", Lines(ZapretGames.ListGeneralFile));
+        _games.Set(_files, "ubisoft", true);
+        Assert.Contains("ubisoft.com", Lines(ZapretGames.ListExcludeFile));
     }
 
     [Fact]
     public void LockedListGivesClearError()
     {
         _files.EnsureUserLists();
-        var path = Path.Combine(_files.Lists, ZapretGames.ListGeneralFile);
+        var path = Path.Combine(_files.Lists, ZapretGames.ListExcludeFile);
         using var lockIt = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
-        var ex = Assert.Throws<ZapretFileException>(() => _games.Set(_files, "factorio", true));
+        var ex = Assert.Throws<ZapretFileException>(() => _games.Set(_files, "ubisoft", true));
         Assert.Contains("занят другой программой", ex.Message);
+    }
+
+    [Fact]
+    public void GameRemovedFromSetIsTurnedOffAndCleanedUp()
+    {
+        _files.EnsureUserLists();
+        _games.Set(_files, "ubisoft", true);
+        // Набор с GitHub без этой игры (только Elite).
+        File.WriteAllText(Path.Combine(_root, "data", "games.cache.json"),
+            """{"schema":1,"games":[{"id":"elite","name":"Elite Dangerous","gameFilter":"udp","ipset":"any"}]}""");
+        Assert.DoesNotContain(_games.Games, g => g.Id == "ubisoft");
+        Assert.True(_games.Prune(_files));
+        Assert.Empty(_games.State.Enabled);
+        Assert.DoesNotContain("ubisoft.com", Lines(ZapretGames.ListExcludeFile));
+        Assert.Equal(GameFilterMode.Disabled, _files.ReadGameFilter().Mode);
+        Assert.False(_games.Prune(_files));
     }
 }

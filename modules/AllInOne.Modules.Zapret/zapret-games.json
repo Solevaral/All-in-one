@@ -17,14 +17,6 @@
       "help": "TryToCatchMe переключите из режима TUN в режим системного прокси: через TUN игра подключается, но не пускает в матчи. Если матч всё равно не находится — смените стратегию zapret."
     },
     {
-      "id": "factorio",
-      "name": "Factorio",
-      "note": "Загрузка модов с mods.factorio.com.",
-      "listGeneral": [
-        "factorio.com"
-      ]
-    },
-    {
       "id": "elite",
       "name": "Elite Dangerous",
       "note": "В лаунчере или игре: «Соединение с серверами Frontier невозможно», бесконечная загрузка.",

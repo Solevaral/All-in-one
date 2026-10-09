@@ -244,6 +244,7 @@ internal sealed class ZapretView : UserControl
     private void BuildGamesCore()
     {
         var games = _module.Games;
+        if (games.Prune(_module.Files)) BuildLists();
         var now = ZapretGames.Read(_module.Files);
         var enabled = games.Games.Where(g => games.IsOn(now, g)).ToList();
 
